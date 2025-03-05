@@ -7,6 +7,8 @@ _D="$(dirname "$_S")"
 ROOT_DIR="$(cd "$_D" && pwd)"
 
 KEYS_DIR="$ROOT_DIR/user-keys"
+BASE_KEYS_VAR=
+BASE_KEYS_DIR=
 OPENSSL_DAYS="3650"
 GPG_KEYNAME=
 GPG_EMAIL=
@@ -42,7 +44,19 @@ Usage: $1 options...
 Options:
  -d <dir>
     Set the path to save the generated user keys.
+    If <dir> is relative, the dir is appended to
+    the basepath given in the -bd option. If path
+    is absolute, the base directories of the path
+    must match the path given the -bd option. If
+    the -bd option is not given, <dir> is used as is.
     Default: $(pwd)/user-keys
+ -bd <basedir_var>=<path>
+    The base directory of the target path of the
+    generated keys and the Yocto variable it should
+    be mappet do.
+    Example: -bd LAYERDIR=/my/yocto/directory/meta-secure-core/meta-signing-key.
+             In the generated keys.conf file, the base path will
+             be substittued for ${LAYERDIR} in the configuration
  -c <gpg key comment>
     Set the RPM/OStree gpg's key name
     Default: $gpg_comment
@@ -112,6 +126,14 @@ while [ $# -gt 0 ]; do
         -d)
             shift && KEYS_DIR="$1"
             ;;
+        -bd) shift
+             IFS='=' read -r base_dir_var base_dir_path <<< "$1"
+             if [ -z "$base_dir_path" ]; then
+                 print_fatal "ERROR: The -bd parameter argument must follow the format VAR=dir"
+             fi
+             BASE_KEYS_VAR="$base_dir_var"
+             BASE_KEYS_DIR="$base_dir_path"
+             ;;
         -c)
             shift && GPG_COMMENT="$1"
             ;;
@@ -174,7 +196,25 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+KEYS_DIR_RENDER="$(realpath --no-symlinks "$KEYS_DIR")"
+if [ -n "$BASE_KEYS_VAR" ]; then
+    # Check if -bd path is a subpath of -d if -d is absolute or append
+    # -bd to -d if it's relative
+    case "$KEYS_DIR" in
+        /*)
+            if [ "${KEYS_DIR##"$BASE_KEYS_DIR"}" == "${KEYS_DIR}" ]; then
+                print_fatal "$BASE_KEYS_DIR is not a subpath of $KEYS_DIR"e
+            fi
+            ;;
+        *)
+            KEYS_DIR="${KEYS_DIR%/}/${BASE_KEYS_DIR}"
+            ;;
+    esac
+    KEYS_DIR_RENDER="\${$BASE_KEYS_VAR}${KEYS_DIR##"$BASE_KEYS_DIR"}"
+fi
+
 echo "KEYS_DIR: $KEYS_DIR"
+echo "KEYS_DIR yocto config: $KEYS_DIR_RENDER"
 
 UEFI_SB_KEYS_DIR="$KEYS_DIR/uefi_sb_keys"
 MOK_SB_KEYS_DIR="$KEYS_DIR/mok_sb_keys"
@@ -598,10 +638,11 @@ if [ -z "$BOOT_PASS" ]; then
     done
 fi
 
+
 create_user_keys
 
 cat <<EOF > "$KEYS_DIR/keys.conf"
-MASTER_KEYS_DIR = "$(readlink -f "$KEYS_DIR")"
+MASTER_KEYS_DIR = "$KEYS_DIR_RENDER"
 
 IMA_KEYS_DIR = "\${MASTER_KEYS_DIR}/ima_keys"
 IMA_EVM_KEY_DIR = "\${MASTER_KEYS_DIR}/ima_keys"
@@ -642,5 +683,5 @@ $(cat "$KEYS_DIR/keys.conf")
 
 ## Please save the values above to your local.conf
 ## Or copy and uncomment the following line:
-# require $(readlink -f "$KEYS_DIR/keys.conf")
+# require $KEYS_DIR_RENDER/keys.conf
 EOF
