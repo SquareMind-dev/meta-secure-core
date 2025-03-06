@@ -113,7 +113,7 @@ def uks_get_key(dir, key, d):
             bb.fatal("Signing model is pkcs11 but the variable %s is not defined" % var)
         return v
     else:
-        return os.path.join(dir, key)
+        return os.path.join(dir, key + ".key")
 
 def sign_efi_image(key, cert, input, output, d):
     import bb.process
