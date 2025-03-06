@@ -1,0 +1,11 @@
+# Sample PKCS11 token map configuration files. Replace the variables
+# below with the tokens used in your configuration
+
+TOKEN_KEY_PK="pkcs11:token=..."
+TOKEN_KEY_KEK="pkcs11:token=..."
+TOKEN_KEY_DB="pkcs11:token=..."
+
+TOKEN_KEY_shim_cert="pkcs11:token=..."
+TOKEN_KEY_vendor_cert="pkcs11:token=..."
+
+TOKEN_KEY_modsign_key="pkcs11:token=..."

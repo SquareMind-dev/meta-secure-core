@@ -7,7 +7,7 @@ _D="$(dirname "$_S")"
 ROOT_DIR="$(cd "$_D" && pwd)"
 
 KEYS_DIR="$ROOT_DIR/user-keys"
-BASE_KEYS_VAR=
+BASE_KEYS_SUBS=
 BASE_KEYS_DIR=
 OPENSSL_DAYS="3650"
 GPG_KEYNAME=
@@ -50,13 +50,17 @@ Options:
     must match the path given the -bd option. If
     the -bd option is not given, <dir> is used as is.
     Default: $(pwd)/user-keys
- -bd <basedir_var>=<path>
-    The base directory of the target path of the
-    generated keys and the Yocto variable it should
-    be mappet do.
-    Example: -bd LAYERDIR=/my/yocto/directory/meta-secure-core/meta-signing-key.
-             In the generated keys.conf file, the base path will
-             be substittued for ${LAYERDIR} in the configuration
+ -bd <basedir_subs>=<path>
+    The base directory of the generated certificate
+    store and the configuration value it should be
+    mapped to. This is useful when the deployed
+    location of the keystore is different from
+    the path where it was created
+    Example: -bd "$""{TOPDIR}/my/keystore/location/=/my/yocto/directory/meta-secure-core/meta-signing-key
+             In the generated keys.conf file, the
+             base path used in the MASTER_KEYS_DIR will
+             be substituted with <basedir_subs>
+ -s Run in script (non-interactive) mode
  -c <gpg key comment>
     Set the RPM/OStree gpg's key name
     Default: $gpg_comment
@@ -72,6 +76,14 @@ Options:
  -ip <IMA passphrase>
  --days          Specify the number of days to make a certificate valid for
                  Default: $OPENSSL_DAYS
+ --signing-model <user|pkcs11>
+   Set the signing model to generate the keystore for. user will generate
+   a keystore backed by file-based private keys. pkcs11 will generate
+   a keystore where the certificates are signed using pkcs11 giving the
+   possibility to not store the private keys as files.
+ --pkcs11-token-map <file>
+   Specify the path to a config file following the format of
+   pkcs11-token-map.conf.sample
  -h|--help       Show this help information.
 Overides:
  -bc <gpg key comment>
@@ -131,7 +143,7 @@ while [ $# -gt 0 ]; do
              if [ -z "$base_dir_path" ]; then
                  print_fatal "ERROR: The -bd parameter argument must follow the format VAR=dir"
              fi
-             BASE_KEYS_VAR="$base_dir_var"
+             BASE_KEYS_SUBS="$base_dir_var"
              BASE_KEYS_DIR="$base_dir_path"
              ;;
         -c)
@@ -197,20 +209,23 @@ while [ $# -gt 0 ]; do
 done
 
 KEYS_DIR_RENDER="$(realpath --no-symlinks "$KEYS_DIR")"
-if [ -n "$BASE_KEYS_VAR" ]; then
+if [ -n "$BASE_KEYS_SUBS" ]; then
+    # Path must end in / to prevent BASE_KEYS_DIR from substituting
+    # part of a path component in KEYS_DIR
+    BASE_KEYS_DIR="${BASE_KEYS_DIR%/}/"
     # Check if -bd path is a subpath of -d if -d is absolute or append
     # -bd to -d if it's relative
     case "$KEYS_DIR" in
         /*)
             if [ "${KEYS_DIR##"$BASE_KEYS_DIR"}" == "${KEYS_DIR}" ]; then
-                print_fatal "$BASE_KEYS_DIR is not a subpath of $KEYS_DIR"e
+                print_fatal "$BASE_KEYS_DIR is not a subpath of $KEYS_DIR"
             fi
             ;;
         *)
             KEYS_DIR="${KEYS_DIR%/}/${BASE_KEYS_DIR}"
             ;;
     esac
-    KEYS_DIR_RENDER="\${$BASE_KEYS_VAR}${KEYS_DIR##"$BASE_KEYS_DIR"}"
+    KEYS_DIR_RENDER="$BASE_KEYS_SUBS/${KEYS_DIR##"$BASE_KEYS_DIR"}"
 fi
 
 echo "KEYS_DIR: $KEYS_DIR"
