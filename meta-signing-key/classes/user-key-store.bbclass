@@ -46,7 +46,7 @@ def uks_get_pkcs11_proc_env(d):
                 "AWS_KMS_PKCS11_SECRET": aws_secret_key,
                 "AWS_REGION": aws_region}
     else:
-        return None
+        return {}
 
 def uks_dict_to_shell_env(env, d):
     return ' '.join(["%s=%s" % (k, env[k]) for k in env.keys()])
