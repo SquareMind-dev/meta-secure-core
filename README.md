@@ -19,7 +19,21 @@ to perform similar binary validation, e.g, for linux kernel.
 By default, the signing key used by UEFI/MOK secure boot is the sample key for
 the purposes of development and demonstration. It is not recommended that
 this sample key be used for a production device and should be replaced by
-a secret key owned by the user. 
+a secret key owned by the user.
+
+#### Signing using AWS KMS
+To avoid storing the certificate private keys as files, the keystore supports offloading signing operations to AWS KMS. To enable this, set the variable `SIGNING_MODEL=pkcs11` and add `aws-kms-signing` to `DISTRO_FEATURES`. To generate a keystore backed by KMS do the following
+
+1. Compile and install the [Support module](https://github.com/JackOfMostTrades/aws-kms-pkcs11)
+1. Create a 
+
+```
+BB_ENV_PASSTHROUGH_ADDITIONS="AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_REGION"
+AWS_ACCESS_KEY_ID="<AWS access key id>"
+AWS_SECRET_ACCESS_KEY"<AWS acces key secret>"
+AWS_REGION="<My AWS region>"
+```
+
 
 #### TPM 2.0
 This feature enables Trusted Platform Module 2.0 support, including
