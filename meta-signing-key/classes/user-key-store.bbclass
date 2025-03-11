@@ -24,10 +24,15 @@ def uks_get_pkcs11_proc_env(d):
     if mod:
         aws_key_id = d.getVar("AWS_ACCESS_KEY_ID")
         aws_secret_key = d.getVar("AWS_SECRET_ACCESS_KEY")
+        aws_session_token = d.getVar("AWS_SESSION_TOKEN")
         if aws_key_id is None:
             bb.fatal("Variable AWS_ACCESS_KEY_ID is not set but it is required for using the aws-kms-signing feature")
             if aws_secret_key is None:
                 bb.fatal("Variable AWS_ACCESS_KEY_ID is set but AWS_SECRET_ACCESS_KEY is not")
+
+            if aws_secret_key is None:
+                bb.fatal("Variable AWS_ACCESS_KEY_ID is set but AWS_SESSION_TOKEN is not")
+
         aws_region = d.getVar("AWS_REGION")
         default_region = "eu-west-1"
         if aws_region is None:
@@ -44,6 +49,7 @@ def uks_get_pkcs11_proc_env(d):
                 "AWS_KMS_PKCS11_CAFILE": os.path.join(dir, "etc", "ssl", "certs", "ca-certificates.crt"),
                 "AWS_KMS_PKCS11_KEY": aws_key_id,
                 "AWS_KMS_PKCS11_SECRET": aws_secret_key,
+                "AWS_KMS_PKCS11_SESSION": aws_session_token,
                 "AWS_REGION": aws_region}
     else:
         return {}
