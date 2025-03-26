@@ -234,10 +234,13 @@ def uks_sel_sign(input, d):
 def check_ima_user_keys(d):
     dir = uks_ima_keys_dir(d)
 
-    for _ in ('key', 'der'):
-        if not os.path.exists(dir + 'x509_ima.' + _):
-            vprint("%s.crt is unavailable" % _, d)
-            return False
+    _ = 'x509_ima'
+    if not uks_check_privkey_file(dir + _ + '.key', d):
+        return False
+
+    if not os.path.exists(dir + _ + '.der'):
+        vprint("%s.der is unavailable" % _, d)
+        return False
 
 def check_system_trusted_keys(d):
     dir = uks_system_trusted_keys_dir(d)
@@ -522,8 +525,7 @@ def set_keys_dir(name, d):
         d.setVar(name + '_KEYS_DIR', d.getVar('DEPLOY_DIR_IMAGE') + '/user-keys/' + name.lower() + '_keys')
 
 python check_deploy_keys() {
-    # for _ in ('UEFI_SB', 'MOK_SB', 'IMA', 'SYSTEM_TRUSTED', 'SECONDARY_TRUSTED', 'MODSIGN', 'RPM'):
-    for _ in ('UEFI_SB', 'MOK_SB'): #, 'IMA', 'SYSTEM_TRUSTED', 'SECONDARY_TRUSTED', 'MODSIGN', 'RPM'):
+    for _ in ('UEFI_SB', 'MOK_SB', 'IMA', 'SYSTEM_TRUSTED', 'SECONDARY_TRUSTED', 'MODSIGN', 'RPM'):
         if d.getVar(_) != "1":
             continue
 

@@ -261,8 +261,30 @@ key_param() {
         pkcs11)
             token_var_name="TOKEN_KEY_${key_name}"
             echo "-engine ${SIGNING_ENGINE} \
-                 -key ${!token_var_name} \
-                 -keyform engine"
+                  -key ${!token_var_name} \
+                  -keyform engine"
+            ;;
+        *)
+            print_fatal "Invalid signing model"
+            ;;
+    esac
+}
+
+# Returns appropriate openssl req arguments depending on ife
+# a file-backed or engine-backed signing method is used
+ca_key_param() {
+    key_dir="$1"
+    key_name="$2"
+
+    case "$SIGNING_MODEL" in
+        user)
+            echo "-CAkey $key_dir/$key_name.key"
+            ;;
+        pkcs11)
+            token_var_name="TOKEN_KEY_${key_name}"
+            echo "-engine ${SIGNING_ENGINE} \
+                  -CAkey ${!token_var_name} \
+                  -CAkeyform engine"
             ;;
         *)
             print_fatal "Invalid signing model"
@@ -282,19 +304,18 @@ ca_sign() {
     # Self signing ?
     # shellcheck disable=SC2046
     if [ "$key_name" = "$ca_key_name" ]; then
-        openssl req -new -x509  \
+        openssl req -new -x509 \
             -sha256 -nodes -days "$OPENSSL_DAYS" \
             -subj "$subject" \
              $(key_param "$key_dir" "$key_name") \
             -out "$key_dir/$key_name.crt" \
                 || print_fatal "openssl failure"
     else
-        print_fatal "These signing modes are unsupported for now"
         if [ -z "$encrypted" ]; then
-            openssl req -new -newkey rsa:2048 \
+            openssl req -new \
                 -sha256 -nodes \
                 -subj "$subject" \
-                -keyout "$key_dir/$key_name.key" \
+                $(key_param "$key_dir" "$key_name") \
                 -out "$key_dir/$key_name.csr" \
                     || print_fatal "openssl failure"
         else
@@ -330,16 +351,16 @@ ca_sign() {
             ca_cert_form="DER"
         }
 
-        if [ -z "$encrypted" ]; then
-            local extfile="openssl.cnf"
-        else
+        if [ "$key_name" = "x509_ima" ]; then
             local extfile="openssl-ima.cnf"
+        else
+            local extfile="openssl.cnf"
         fi
 
         openssl x509 -req -in "$key_dir/$key_name.csr" \
             -CA "$ca_cert" \
             -CAform "$ca_cert_form" \
-            -CAkey "$ca_key_dir/$ca_key_name.key" \
+            $(ca_key_param "$ca_key_dir" "$ca_key_name") \
             -set_serial 1 -days "$OPENSSL_DAYS" \
             -extfile "$ROOT_DIR/$extfile" -extensions v3_req \
             -out "$key_dir/$key_name.crt" \
@@ -405,8 +426,14 @@ create_ima_user_key() {
 
     [ ! -d "$key_dir" ] && mkdir -p "$key_dir"
 
+    # Encrypting the IMA signing key only makes sense for signing
+    # models that store private keys as files
+    encrypted=""
+    if [ "$SIGNING_MODEL" = "user" ]; then
+        encrypted="enc"
+    fi
     ca_sign "$key_dir" x509_ima "$SYSTEM_KEYS_DIR" system_trusted_key \
-        "/CN=IMA Trusted Certificate/" "enc"
+        "/CN=IMA Trusted Certificate/" $encrypted
 
     pem2der "$key_dir/x509_ima.crt"
     rm -f "$key_dir/x509_ima.crt"
@@ -506,17 +533,17 @@ create_user_keys() {
     echo "Creating the user keys for MOK Secure Boot"
     create_mok_sb_user_keys
 
-    # echo "Creating the user key for system"
-    # create_system_user_key
+    echo "Creating the user key for system"
+    create_system_user_key
 
-    #echo "Creating the user key for system secondary trust"
-    #create_secondary_user_key
+    echo "Creating the user key for system secondary trust"
+    create_secondary_user_key
 
     echo "Creating the user key for modsign"
     create_modsign_user_key
 
-    #echo "Creating the user key for IMA appraisal"
-    #create_ima_user_key
+    echo "Creating the user key for IMA appraisal"
+    create_ima_user_key
 
     #echo "Creating the gpg key for RPM/OSTree"
     #create_gpg_user_key "$RPM_KEYS_DIR" RPM "$gpg_key_name" "$GPG_PASS" "$gpg_comment" "$gpg_email"
