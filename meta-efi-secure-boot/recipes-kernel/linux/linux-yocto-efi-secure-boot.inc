@@ -81,6 +81,7 @@ fakeroot python do_sign_bundled_kernel() {
 }
 do_sign_bundled_kernel[prefuncs] += "check_deploy_keys"
 do_sign_bundled_kernel[prefuncs] += "${@'check_boot_public_key' if d.getVar('GRUB_SIGN_VERIFY') == '1' else ''}"
+do_sign_bundled_kernel[file-checksums] += "${CERTIFICATE_FILE_LIST}"
 
 python() {
     if d.getVar('INITRAMFS_IMAGE') and bb.utils.to_boolean(d.getVar('INITRAMFS_IMAGE_BUNDLE')):

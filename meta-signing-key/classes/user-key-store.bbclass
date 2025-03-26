@@ -17,6 +17,22 @@ SECONDARY_TRUSTED = '${@"1" if d.getVar("SYSTEM_TRUSTED") == "1" else "0"}'
 RPM ?= '1'
 PKCS11_MODULE = '${@"${STAGING_LIBDIR_NATIVE}/pkcs11/aws_kms_pkcs11.so" if bb.utils.contains("DISTRO_FEATURES", "aws-kms-signing", True, False, d) and d.getVar("SIGNING_MODEL") == "pkcs11" else ""}'
 
+# This variable contains the accumulated hash of currently enabled
+# certificates. It is used in build recipes to ensure that tasks that
+# use the certificate store are rerun when the certificates change.
+#
+# This be ensured by adding the variable to the file-checksums
+# property of a task in a recipe that inherits this class, for example:
+#
+#   inherit user-key-store
+#   [...]
+#   do_compile[file-checksums] += "${CERTIFICATE_FILE_LIST}"
+#
+CERTIFICATE_FILE_LIST = "${@gen_file_list(d)}"
+
+# Add this property to the do_sign tasks of all recipes
+do_sign[file-checksums] += "${CERTIFICATE_FILE_LIST}"
+
 def uks_get_pkcs11_proc_env(d):
     mod = d.getVar("PKCS11_MODULE")
     libdir = d.getVar("STAGING_LIBDIR_NATIVE")
@@ -569,6 +585,13 @@ def set_keys_dir(name, d):
     if d.getVar(name + '_KEYS_DIR') == d.getVar('SAMPLE_' + name + '_KEYS_DIR'):
         d.setVar(name + '_KEYS_DIR', d.getVar('DEPLOY_DIR_IMAGE') + '/user-keys/' + name.lower() + '_keys')
 
+def get_keys_dir(name, d):
+    if d.getVar(name) != "1":
+        return None
+
+    return d.getVar(name + '_KEYS_DIR')
+
+
 python check_deploy_keys() {
     for _ in ('UEFI_SB', 'MOK_SB', 'IMA', 'SYSTEM_TRUSTED', 'SECONDARY_TRUSTED', 'MODSIGN', 'RPM'):
         if d.getVar(_) != "1":
@@ -586,6 +609,56 @@ python check_deploy_keys() {
 }
 
 check_deploy_keys[lockfiles] = "${TMPDIR}/check_deploy_keys.lock"
+
+def gen_file_list(d):
+    keys = {
+        'UEFI_SB': {
+            'dir': uefi_sb_keys_dir(d),
+            'keys': ['PK', 'KEK', 'DB'],
+            'ext': '.crt',
+        },
+        'MOK_SB': {
+            'dir': mok_sb_keys_dir(d),
+            'keys': ['vendor_cert', 'shim_cert'],
+            'ext': '.crt',
+        },
+        'IMA': {
+            'dir': uks_ima_keys_dir(d),
+            'keys': ['x509_ima'],
+            'ext': '.der',
+        },
+        'SYSTEM_TRUSTED': {
+            'dir': uks_system_trusted_keys_dir(d),
+            'keys': ['system_trusted_key'],
+            'ext': '.crt',
+        },
+        'SECONDARY_TRUSTED': {
+            'dir': uks_secondary_trusted_keys_dir(d),
+            'keys': ['secondary_trusted_key'],
+            'ext': '.crt',
+        },
+        'MODSIGN': {
+            'dir': uks_modsign_keys_dir(d),
+            'keys': ['modsign_key'],
+            'ext': '.crt',
+        },
+        'RPM': {
+            'dir': uks_rpm_keys_dir(d),
+            'keys': ['RPM-GPG-KEY-'],
+            'ext': d.getVar('RPM_GPG_NAME'),
+        },
+    }
+
+    res = []
+
+    for k, v in keys.items():
+        if d.getVar(k) != "1":
+            continue
+
+        for kk in v["keys"]:
+            res.append(os.path.join(v['dir'], kk + v['ext']) + ":True")
+
+    return " ".join(res)
 
 def check_gpg_key(basekeyname, keydirfunc, d):
     gpg_path = d.getVar('GPG_PATH')
