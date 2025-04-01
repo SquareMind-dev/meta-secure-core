@@ -33,6 +33,7 @@ CERTIFICATE_FILE_LIST = "${@gen_file_list(d)}"
 # Add this property to the do_sign tasks of all recipes
 do_sign[file-checksums] += "${CERTIFICATE_FILE_LIST}"
 
+uks_get_pkcs11_proc_env[vardepsexclude] += "AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN"
 def uks_get_pkcs11_proc_env(d):
     mod = d.getVar("PKCS11_MODULE")
     libdir = d.getVar("STAGING_LIBDIR_NATIVE")
