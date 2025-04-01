@@ -32,6 +32,22 @@ python() {
 do_unpack[depends] += "virtual/kernel:do_deploy"
 do_populate_lic[depends] += "virtual/kernel:do_deploy"
 
+def gen_file_list(d):
+    bundle = d.getVar("BUNDLE")
+    bundle = bundle == "1" if not bundle is None else None
+    fstypes = d.getVar("INITRAMFS_FSTYPES").split(" ")
+    path = d.getVar("DEPLOY_DIR_IMAGE")
+    image = d.getVar("INITRAMFS_IMAGE")
+    imagetype = d.getVar("INITRAMFS_IMAGETYPE")
+    machine = d.getVar("MACHINE")
+
+    assert(all([bundle, fstypes, path, machine] + ([image] if bundle else [imagetype])))
+
+    if bundle:
+        return f"{path}/{image}-{machine}.bin:True"
+    else:
+        return " ".join(map(lambda x: f"{path}/{imagetype}-initramfs-{machine}.{x}:True", fstypes))
+
 do_install() {
     [ -z "${INITRAMFS_IMAGE}" ] && exit 0
 
@@ -52,6 +68,8 @@ do_install() {
         fi
     fi
 }
+
+do_install[file-checksums] += "${@gen_file_list(d)}"
 
 inherit update-alternatives
 

@@ -1,9 +1,6 @@
 DEPENDS += "openssl-native"
 inherit user-key-store deploy
 
-# Always fetch the latest initramfs image
-do_install[nostamp] = "1"
-
 fakeroot python do_sign() {
     if d.getVar('BUNDLE') == '0':
         for compr in d.getVar('INITRAMFS_FSTYPES').split():
