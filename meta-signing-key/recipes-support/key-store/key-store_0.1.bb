@@ -57,6 +57,10 @@ do_install() {
         done
     fi
 
+    # Clean up empty directories of no RPM certificates were installed
+    rmdir "${D}${RPM_KEY_DIR}" || true
+    rmdir "$(dirname "${D}${RPM_KEY_DIR}")" || true
+
     install -d "${D}${KEY_DIR}"
 
     key_dir="${@uks_system_trusted_keys_dir(d)}"

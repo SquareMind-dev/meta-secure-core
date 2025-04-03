@@ -1,0 +1,35 @@
+From 465893a7711c162b109a1d689b7fd3efba07c380 Mon Sep 17 00:00:00 2001
+From: Truls Asheim <truls@asheim.dk>
+Date: Wed, 2 Apr 2025 13:30:08 +0200
+Subject: [PATCH] Disable extracting public key from PKCS#11 URI
+
+This patch disables extracting the public key certificate from the
+token referenced by the PKCS#11 URI to allow providing the certificate
+as a file.
+
+Signed-off-by: Truls Asheim <truls@asheim.dk>
+Upstream-Status: Inappropriate [OE-specific]
+
+---
+ certs/Makefile | 5 -----
+ 1 file changed, 5 deletions(-)
+
+diff --git a/certs/Makefile b/certs/Makefile
+index f6fa4d8d75e0..d384be62f0de 100644
+--- a/certs/Makefile
++++ b/certs/Makefile
+@@ -65,11 +65,7 @@ endif # CONFIG_MODULE_SIG_KEY
+ 
+ $(obj)/system_certificates.o: $(obj)/signing_key.x509
+ 
+ PKCS11_URI := $(filter pkcs11:%, $(CONFIG_MODULE_SIG_KEY))
+-ifdef PKCS11_URI
+-$(obj)/signing_key.x509: extract-cert-in := $(PKCS11_URI)
+-endif
+-
+ $(obj)/signing_key.x509: $(filter-out $(PKCS11_URI),$(CONFIG_MODULE_SIG_KEY)) $(obj)/extract-cert FORCE
+ 	$(call if_changed,extract_certs)
+ 
+-- 
+2.43.0
+

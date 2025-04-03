@@ -1,0 +1,33 @@
+From 4fcfcc46e326eedd280ac35045aaa882040749bd Mon Sep 17 00:00:00 2001
+From: Truls Asheim <truls@asheim.dk>
+Date: Wed, 2 Apr 2025 13:49:37 +0200
+Subject: [PATCH] Extract PKCS#11 URI from config parameter
+
+This makes it possible to specify both a PKCS#11 URI and a public-key
+certificate file in the CONFIG_MODULE_SIG_KEY variable separated by a
+space. The patch extracts the PKCS#11 URI from the variable and passes
+it on to the sign-file script.
+
+Signed-off-by: Truls Asheim <truls@asheim.dk>
+Upstream-Status: Inappropriate [OE-specific]
+
+---
+ scripts/Makefile.modinst | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/scripts/Makefile.modinst b/scripts/Makefile.modinst
+index d97720943189..bd69fa44419a 100644
+--- a/scripts/Makefile.modinst
++++ b/scripts/Makefile.modinst
+@@ -102,7 +102,7 @@ endif
+ ifeq ($(filter pkcs11:%, $(CONFIG_MODULE_SIG_KEY)),)
+ sig-key := $(if $(wildcard $(CONFIG_MODULE_SIG_KEY)),,$(srctree)/)$(CONFIG_MODULE_SIG_KEY)
+ else
+-sig-key := $(CONFIG_MODULE_SIG_KEY)
++sig-key := $(filter pkcs11:%, $(CONFIG_MODULE_SIG_KEY))
+ endif
+ quiet_cmd_sign = SIGN    $@
+       cmd_sign = scripts/sign-file $(CONFIG_MODULE_SIG_HASH) "$(sig-key)" certs/signing_key.x509 $@ \
+-- 
+2.43.0
+

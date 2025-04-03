@@ -54,6 +54,10 @@ def uks_get_pkcs11_proc_env(d):
     else:
         return {}
 
+def uks_get_shell_env_export(d):
+   return "\n".join([f"export LD_LIBRARY_PATH=\"{d.getVar('STAGING_LIBDIR_NATIVE')}:$LD_LIBRARY_PATH\""] + [f"export {k}={v}" for k, v in uks_get_pkcs11_proc_env(d).items()]) if uks_signing_model(d) == "pkcs11" else ""
+
+
 def uks_dict_to_shell_env(env, d):
     return ' '.join(["%s=%s" % (k, env[k]) for k in env.keys()])
 

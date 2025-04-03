@@ -1,0 +1,34 @@
+From 271b42b515242efc5770775a456642c79eaf505d Mon Sep 17 00:00:00 2001
+From: Truls Asheim <truls@asheim.dk>
+Date: Wed, 2 Apr 2025 18:22:54 +0200
+Subject: [PATCH] Fail build if signing of external modules fail
+
+This patch ensures that installing external modules will fail if they
+are not successfully signed. This avoid silent signing failures which
+generates modules that are unloadable in images generated with kernels
+that require modules to be signed.
+
+Signed-off-by: Truls Asheim <truls@asheim.dk>
+Upstream-Status: Inappropriate [OE-specific]
+
+---
+ scripts/Makefile.modinst | 3 +--
+ 1 file changed, 1 insertion(+), 2 deletions(-)
+
+diff --git a/scripts/Makefile.modinst b/scripts/Makefile.modinst
+index bd69fa44419a..6aab04ff6817 100644
+--- a/scripts/Makefile.modinst
++++ b/scripts/Makefile.modinst
+@@ -105,8 +105,7 @@ else
+ sig-key := $(filter pkcs11:%, $(CONFIG_MODULE_SIG_KEY))
+ endif
+ quiet_cmd_sign = SIGN    $@
+-      cmd_sign = scripts/sign-file $(CONFIG_MODULE_SIG_HASH) "$(sig-key)" certs/signing_key.x509 $@ \
+-                 $(if $(KBUILD_EXTMOD),|| true)
++      cmd_sign = scripts/sign-file $(CONFIG_MODULE_SIG_HASH) "$(sig-key)" certs/signing_key.x509 $@
+ 
+ ifeq ($(sign-only),)
+ 
+-- 
+2.43.0
+
