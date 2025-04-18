@@ -81,6 +81,7 @@ do_install() {
 }
 
 do_install[prefuncs] += "check_deploy_keys"
+do_install[file-checksums] += "${CERTIFICATE_FILE_LIST}"
 
 SYSROOT_PREPROCESS_FUNCS += "key_store_sysroot_preprocess"
 
