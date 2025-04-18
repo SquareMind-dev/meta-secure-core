@@ -16,6 +16,7 @@ SYSTEM_TRUSTED = '${@"1" if d.getVar("IMA") == "1" or d.getVar("MODSIGN") == "1"
 SECONDARY_TRUSTED = '${@"1" if d.getVar("SYSTEM_TRUSTED") == "1" else "0"}'
 RPM ?= '1'
 PKCS11_MODULE = '${@"${STAGING_LIBDIR_NATIVE}/pkcs11/aws_kms_pkcs11.so" if bb.utils.contains("DISTRO_FEATURES", "aws-kms-signing", True, False, d) and d.getVar("SIGNING_MODEL") == "pkcs11" else ""}'
+SIGNING_NEEDS_NETWORK = "${@bb.utils.contains('DISTRO_FEATURES', 'aws-kms-signing', '1', '0', d)}"
 
 # This variable contains the accumulated hash of currently enabled
 # certificates. It is used in build recipes to ensure that tasks that
@@ -32,6 +33,9 @@ CERTIFICATE_FILE_LIST = "${@gen_file_list(d)}"
 
 # Add this property to the do_sign tasks of all recipes
 do_sign[file-checksums] += "${CERTIFICATE_FILE_LIST}"
+
+# Enable networking for the do_sign target
+do_sign[network] = "${SIGNING_NEEDS_NETWORK}"
 
 uks_get_pkcs11_proc_env[vardepsexclude] += "AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN"
 def uks_get_pkcs11_proc_env(d):
