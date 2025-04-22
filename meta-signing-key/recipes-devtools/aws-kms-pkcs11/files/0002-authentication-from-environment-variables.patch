@@ -1,3 +1,8 @@
+From e033e082a61ec919fb81bc69b563eac745e17b02 Mon Sep 17 00:00:00 2001
+From: Truls Asheim <truls@asheim.dk>
+Date: Fri, 28 Feb 2025 17:58:36 +0100
+Subject: [PATCH] Allow granting access with keys in environment variables
+
 Use AWS key ID and secret from environment variables for authentication
 
 The patch is specific to invocation from within yocto. In normal
@@ -12,9 +17,9 @@ Signed-off-by: Truls Asheim <truls@squaremind.io>
  aws_kms_pkcs11.cpp |  8 +++-----
  aws_kms_slot.cpp   |  3 +--
  certificates.cpp   |  3 +--
- util.cpp           | 23 ++++++++++++++++++++++-
- util.h             | 11 +++++++++++
- 5 files changed, 38 insertions(+), 10 deletions(-)
+ util.cpp           | 22 +++++++++++++++++++++-
+ util.h             | 13 +++++++++++++
+ 5 files changed, 39 insertions(+), 10 deletions(-)
 
 diff --git a/aws_kms_pkcs11.cpp b/aws_kms_pkcs11.cpp
 index c8afef0..8f70755 100644
@@ -73,21 +78,18 @@ index 824706e..708f376 100644
  
      req.SetCertificateArn(arn);
 diff --git a/util.cpp b/util.cpp
-index 13d9b82..5a261d8 100644
+index 13d9b82..69592f5 100644
 --- a/util.cpp
 +++ b/util.cpp
-@@ -1,8 +1,9 @@
+@@ -1,6 +1,6 @@
 +#include <optional>
  #include <string.h>
  #include <stdlib.h>
 -#include <stdarg.h>
  #include <stdio.h>
  #include "util.h"
-+#include "aws/core/auth/AWSCredentials.h"
  #include "debug.h"
- 
- #include <aws/core/Aws.h>
-@@ -43,3 +44,23 @@ Aws::Client::ClientConfiguration create_aws_config(std::string region) {
+@@ -43,3 +43,23 @@ Aws::Client::ClientConfiguration create_aws_config(std::string region) {
  
      return awsConfig;
  }
@@ -105,20 +107,22 @@ index 13d9b82..5a261d8 100644
 +        credentials.SetSessionToken(Aws::String(session));
 +        return std::make_optional(credentials);
 +      } else {
-+        debug("AWS_KMS_PKCS11_KEY variable set without AWS_KMS_PKCS11_SECRET and/or AWS_KMS_PKCS11_SESSION.");
++        debug("AWS_KMS_PKCS11_KEY variable set without AWS_KMS_PKCS_SECRET and/or AWS_KMS_PKCS_SESSION.");
 +        return std::nullopt;
 +      }
 +    }
 +    return std::nullopt;
 +}
 diff --git a/util.h b/util.h
-index 077721b..83ed820 100644
+index 077721b..4cc36ee 100644
 --- a/util.h
 +++ b/util.h
-@@ -1,2 +1,13 @@
+@@ -1,2 +1,15 @@
  #include <aws/core/Aws.h>
++#include <aws/core/auth/AWSCredentials.h>
 +#include <aws/kms/KMSClient.h>
 +#include <optional>
++
  Aws::Client::ClientConfiguration create_aws_config(std::string region);
 +std::optional<Aws::Auth::AWSCredentials> create_credentials();
 +
@@ -131,3 +135,4 @@ index 077721b..83ed820 100644
 +}
 -- 
 2.43.0
+
