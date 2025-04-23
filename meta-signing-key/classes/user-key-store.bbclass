@@ -22,9 +22,33 @@ def uks_get_pkcs11_proc_env(d):
     libdir = d.getVar("STAGING_LIBDIR_NATIVE")
     dir = d.getVar("STAGING_DIR_NATIVE")
     if mod:
-        aws_key_id = d.getVar("AWS_ACCESS_KEY_ID")
-        aws_secret_key = d.getVar("AWS_SECRET_ACCESS_KEY")
-        aws_session_token = d.getVar("AWS_SESSION_TOKEN")
+        aws_creds = {k: d.getVar(k) for k in ["AWS_ACCESS_KEY_ID",
+                                              "AWS_SECRET_ACCESS_KEY",
+                                              "AWS_SESSION_TOKEN"]}
+
+        # The credentials we get at this stage from the
+        # UKS_AWS_CRED_COMMAND are not used since they may be expire
+        # by the time we need them. This part therefore serves mostly
+        # as a sanity check
+        aws_cred_cmd = d.getVar("UKS_AWS_CRED_COMMAND")
+        bb.debug(1, f"Using {aws_cred_cmd} for aquiring AWS credentials")
+        if aws_cred_cmd:
+            try:
+                stdout, stderr = bb.process.run(aws_cred_cmd)
+                bb.debug(1, "Credential renewal process output\n%s\n%s" % (stdout, stderr))
+            except bb.process.ExecutionError as err:
+                bb.fatal('Unable to renew aws credentials using %s\n%s' % (aws_cred_cmd, stderr))
+
+            for l in stdout.split("\n"):
+                l = l.strip()
+                if l == "":
+                    continue
+                k, v = l.split("=")
+                aws_creds[k] = v
+
+        aws_key_id = aws_creds["AWS_ACCESS_KEY_ID"]
+        aws_secret_key = aws_creds["AWS_SECRET_ACCESS_KEY"]
+        aws_session_token = aws_creds["AWS_SESSION_TOKEN"]
         if aws_key_id is None:
             bb.fatal("Variable AWS_ACCESS_KEY_ID is not set but it is required for using the aws-kms-signing feature")
             if aws_secret_key is None:
@@ -39,20 +63,25 @@ def uks_get_pkcs11_proc_env(d):
             bb.warn("AWS_REGION is unset. Defaulting to " + default_region)
             aws_region = default_region
 
-        return {"PKCS11_MODULE_PATH": mod,
+        out = {"PKCS11_MODULE_PATH": mod,
                 "AWS_KMS_PKCS11_DEBUG": "1",
                 "OPENSSL_ENGINES": os.path.join(libdir, "engines-3"),
+                "SIGNING_ENV_CMD": aws_cred_cmd if aws_cred_cmd else "",
                 # TODO: These shouldn't be needed as we should be able
                 # to do everything with the AWS_CA_BUNDLE,
                 # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and
                 # assuming that they are passed through
                 "AWS_KMS_PKCS11_CAFILE": os.path.join(dir, "etc", "ssl", "certs", "ca-certificates.crt"),
-                "AWS_KMS_PKCS11_KEY": aws_key_id,
+                "AWS_REGION": aws_region} | \
+                ({"AWS_KMS_PKCS11_KEY": aws_key_id,
                 "AWS_KMS_PKCS11_SECRET": aws_secret_key,
-                "AWS_KMS_PKCS11_SESSION": aws_session_token,
-                "AWS_REGION": aws_region}
+                "AWS_KMS_PKCS11_SESSION": aws_session_token} if aws_cred_cmd is None else {})
+
+        bb.debug(1, f"Returning env {out}")
+        return out
     else:
         return {}
+
 
 def uks_get_shell_env_export(d):
    return "\n".join([f"export LD_LIBRARY_PATH=\"{d.getVar('STAGING_LIBDIR_NATIVE')}:$LD_LIBRARY_PATH\""] + [f"export {k}={v}" for k, v in uks_get_pkcs11_proc_env(d).items()]) if uks_signing_model(d) == "pkcs11" else ""
@@ -60,6 +89,12 @@ def uks_get_shell_env_export(d):
 
 def uks_dict_to_shell_env(env, d):
     return ' '.join(["%s=%s" % (k, env[k]) for k in env.keys()])
+
+def uks_get_cred_command(d):
+    return d.getVar("UKS_AWS_CRED_COMMAND") or ""
+
+def uks_get_cred_command_list(d):
+    return [d.getVar("UKS_AWS_CRED_COMMAND")] or []
 
 def uks_get_signing_args(d):
     if uks_signing_model(d) == "pkcs11":
@@ -129,7 +164,7 @@ def sign_efi_image(key, cert, input, output, d):
     import bb.process
 
     env = {'LD_LIBRARY_PATH': d.getVar('STAGING_LIBDIR_NATIVE') + ':$LD_LIBRARY_PATH' } | uks_get_pkcs11_proc_env(d)
-    cmd = [d.getVar('STAGING_BINDIR_NATIVE') + '/sbsign'] + uks_get_signing_args(d) + \
+    cmd = uks_get_cred_command_list(d) + [d.getVar('STAGING_BINDIR_NATIVE') + '/sbsign'] + uks_get_signing_args(d) + \
                      [ '--key', key,
                        '--cert', cert,
                        '--output', output, input]
@@ -208,7 +243,7 @@ def sel_sign(key, cert, input, d):
     import bb.process
 
     env = {'LD_LIBRARY_PATH': d.getVar('STAGING_LIBDIR_NATIVE') + ':$LD_LIBRARY_PATH' } | uks_get_pkcs11_proc_env(d)
-    cmd = [ d.getVar('STAGING_BINDIR_NATIVE') + '/selsign'] + uks_get_signing_args(d) + \
+    cmd = uks_get_cred_command_list(d) + [ d.getVar('STAGING_BINDIR_NATIVE') + '/selsign'] + uks_get_signing_args(d) + \
         [ '--key', key,
          '--cert', cert, input]
     vprint("Signing %s with the key %s ..." % (input, key), d)

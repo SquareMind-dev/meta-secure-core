@@ -9,7 +9,7 @@ DEPENDS += "${@'key-store openssl-native' \
 SRC_URI += "\
     ${@'file://modsign.scc file://modsign.cfg' \
        if d.getVar('MODSIGN_ENABLED') == '1' else ''} \
-    ${@'file://0001-Force-building-with-OpenSSL-engine-support.patch file://0001-Extract-PKCS-11-URI-from-config-parameter.patch file://0002-Fail-build-if-signing-of-external-modules-fail.patch' if uks_signing_model(d) == 'pkcs11' else ''} \
+    ${@'file://0001-Force-building-with-OpenSSL-engine-support.patch file://0001-Extract-PKCS-11-URI-from-config-parameter.patch file://0002-Fail-build-if-signing-of-external-modules-fail.patch file://0003-Allow-calling-sign-file-through-a-wrapper-command.patch' if uks_signing_model(d) == 'pkcs11' else ''} \
     ${@'file://0001-Disable-extracting-public-key-from-PKCS-11-URI.patch' if uks_signing_model(d) == 'pkcs11' and bb.utils.contains('DISTRO_FEATURES', 'aws-kms-signing', True, False, d) else ''} \
 "
 

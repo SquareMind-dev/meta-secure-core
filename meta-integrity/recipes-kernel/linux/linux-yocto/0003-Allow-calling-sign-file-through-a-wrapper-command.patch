@@ -1,0 +1,39 @@
+From 3a1a4a77d932d59a5d65ad9a0c22101682c46ec9 Mon Sep 17 00:00:00 2001
+From: Truls Asheim <truls@asheim.dk>
+Date: Wed, 23 Apr 2025 12:29:00 +0200
+Subject: [PATCH] Allow calling sign-file through a wrapper command
+
+This patch allows setting the SIGNING_ENV_CMD environment variables to a
+command that should wrap the Makefile's invocation is sign-file. This is
+useful, for example, to dynamically aquire or refresh credentials needed
+for the module signing.
+
+Signed-off-by: Truls Asheim <truls@asheim.dk>
+Upstream-Status: Inappropriate [OE-specific]
+
+---
+ scripts/Makefile.modinst | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/scripts/Makefile.modinst b/scripts/Makefile.modinst
+index 6aab04ff6817..f630a31a0d94 100644
+--- a/scripts/Makefile.modinst
++++ b/scripts/Makefile.modinst
+@@ -99,13 +99,13 @@ endif
+ # Signing
+ # Don't stop modules_install even if we can't sign external modules.
+ #
+ ifeq ($(filter pkcs11:%, $(CONFIG_MODULE_SIG_KEY)),)
+ sig-key := $(if $(wildcard $(CONFIG_MODULE_SIG_KEY)),,$(objtree)/)$(CONFIG_MODULE_SIG_KEY)
+ else
+ sig-key := $(filter pkcs11:%, $(CONFIG_MODULE_SIG_KEY))
+ endif
+ quiet_cmd_sign = SIGN    $@
+-      cmd_sign = scripts/sign-file $(CONFIG_MODULE_SIG_HASH) "$(sig-key)" certs/signing_key.x509 $@
++      cmd_sign = $(SIGNING_ENV_CMD) scripts/sign-file $(CONFIG_MODULE_SIG_HASH) "$(sig-key)" certs/signing_key.x509 $@
+ 
+ ifeq ($(sign-only),)
+ 
+-- 
+2.43.0
+

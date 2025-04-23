@@ -14,12 +14,13 @@ diff --git a/Make.rules b/Make.rules
 index 2c08e48..a7c25fe 100644
 --- a/Make.rules
 +++ b/Make.rules
-@@ -42,6 +42,11 @@ BINDIR		= $(DESTDIR)/usr/bin
+@@ -42,6 +42,12 @@ BINDIR		= $(DESTDIR)/usr/bin
  MANDIR		= $(DESTDIR)/usr/share/man/man1
  EFIDIR		= $(DESTDIR)/usr/share/efitools/efi
  DOCDIR		= $(DESTDIR)/usr/share/efitools
 +SIGNING_ENGINE  ?=
 +SIGNING_ENV     ?=
++SIGNING_ENV_CMD ?=
 +DB_KEY          ?= DB.key
 +KEK_KEY         ?= KEK.key
 +PK_KEY          ?= PK.key
@@ -37,23 +38,23 @@ index 2c08e48..a7c25fe 100644
  
  %.auth: %.esl PK.crt KEK.crt sign-efi-sig-list
 -	$(SIGN_EFI_SIG_LIST) $(call getcert,$*) $(call getvar,$*) $< $@
-+	$(SIGNING_ENV) $(SIGN_EFI_SIG_LIST) $(enginearg) $(call getcert,$*) $(call getvar,$*) $< $@
++	$(SIGNING_ENV) $(SIGNING_ENV_CMD) $(SIGN_EFI_SIG_LIST) $(enginearg) $(call getcert,$*) $(call getvar,$*) $< $@
  
  %-update.auth: %.esl PK.crt KEK.crt sign-efi-sig-list
 -	$(SIGN_EFI_SIG_LIST) -a $(call getcert,$*) $(call getvar,$*) $< $@
-+	$(SIGNING_ENV) $(SIGN_EFI_SIG_LIST) $(enginearg) -a $(call getcert,$*) $(call getvar,$*) $< $@
++	$(SIGNING_ENV) $(SIGNING_ENV_CMD) $(SIGN_EFI_SIG_LIST) $(enginearg) -a $(call getcert,$*) $(call getvar,$*) $< $@
  
  %-pkupdate.auth: %.esl PK.crt sign-efi-sig-list
 -	$(SIGN_EFI_SIG_LIST) -a -c PK.crt -k PK.key $(call getvar,$*) $< $@
-+	$(SIGNING_ENV) $(SIGN_EFI_SIG_LIST) $(enginearg) -a -c PK.crt -k $(PK_KEY) $(call getvar,$*) $< $@
++	$(SIGNING_ENV) $(SIGNING_ENV_CMD) $(SIGN_EFI_SIG_LIST) $(enginearg) -a -c PK.crt -k $(PK_KEY) $(call getvar,$*) $< $@
  
  %-blacklist.auth: %-blacklist.esl KEK.crt sign-efi-sig-list
 -	$(SIGN_EFI_SIG_LIST) -a -c KEK.crt -k KEK.key dbx $< $@
-+	$(SIGNING_ENV) $(SIGN_EFI_SIG_LIST) $(enginearg) -a -c KEK.crt -k $(KEK_KEY) dbx $< $@
++	$(SIGNING_ENV) $(SIGNING_ENV_CMD) $(SIGN_EFI_SIG_LIST) $(enginearg) -a -c KEK.crt -k $(KEK_KEY) dbx $< $@
  
  %-pkblacklist.auth: %-blacklist.esl PK.crt sign-efi-sig-list
 -	$(SIGN_EFI_SIG_LIST) -a -c PK.crt -k PK.key dbx $< $@
-+	$(SIGNING_ENV) $(SIGN_EFI_SIG_LIST) $(enginearg) -a -c PK.crt -k $(PK_KEY) dbx $< $@
++	$(SIGNING_ENV) $(SIGNING_ENV_CMD) $(SIGN_EFI_SIG_LIST) $(enginearg) -a -c PK.crt -k $(PK_KEY) dbx $< $@
  
  %.o: %.c
  	$(CC) $(INCDIR) $(cflags) $(cppflags) -c $< -o $@
@@ -65,7 +66,7 @@ index 2c08e48..a7c25fe 100644
 +
  %-signed.efi: %.efi DB.crt
 -	$(SBSIGN) --key DB.key --cert DB.crt --output $@ $<
-+	$(SIGNING_ENV) $(SBSIGN) --key $(DB_KEY) $(sbsign_engineargs) --cert DB.crt --output $@ $<
++	$(SIGNING_ENV) $(SIGNING_ENV_CMD) $(SBSIGN) --key $(DB_KEY) $(sbsign_engineargs) --cert DB.crt --output $@ $<
  
  ##
  # No need for KEK signing
@@ -78,7 +79,7 @@ index e42de67..fa5ddcf 100644
  
  noPK.auth: noPK.esl PK.crt sign-efi-sig-list
 -	$(SIGN_EFI_SIG_LIST) -t "$(shell date --date='1 second' +'%Y-%m-%d %H:%M:%S')" -c PK.crt -k PK.key PK $< $@
-+	$(SIGNING_ENV) $(SIGN_EFI_SIG_LIST) -t "$(shell date --date='1 second' +'%Y-%m-%d %H:%M:%S')" $(enginearg) -c PK.crt -k $(PK_KEY) PK $< $@
++	$(SIGNING_ENV) $(SIGNING_ENV_CMD) $(SIGN_EFI_SIG_LIST) -t "$(shell date --date='1 second' +'%Y-%m-%d %H:%M:%S')" $(enginearg) -c PK.crt -k $(PK_KEY) PK $< $@
  
  ms-%.esl: ms-%.crt cert-to-efi-sig-list
  	$(CERT_TO_EFI_SIG_LIST) -g $(MSGUID) $< $@
