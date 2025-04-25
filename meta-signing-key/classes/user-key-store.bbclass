@@ -31,11 +31,19 @@ SIGNING_NEEDS_NETWORK = "${@bb.utils.contains('DISTRO_FEATURES', 'aws-kms-signin
 #
 CERTIFICATE_FILE_LIST = "${@gen_file_list(d)}"
 
-# Add this property to the do_sign tasks of all recipes
-do_sign[file-checksums] += "${CERTIFICATE_FILE_LIST}"
-
-# Enable networking for the do_sign target
-do_sign[network] = "${SIGNING_NEEDS_NETWORK}"
+# Set file-checksums dependencies of all do_sign tasks and allow
+# do_sign to use the network
+python __anonymous() {
+    if d.getVar("do_sign"):
+        bb.debug(1, "Setting flags for do_sign")
+        d.setVarFlag("do_sign", "network", "1")
+        files = list(filter(lambda x: x is not None, [d.getVarFlag("do_sign", "file-checksums")]))
+        filelist = [d.getVar("CERTIFICATE_FILE_LIST")]
+        assert(filelist[0] is not None)
+        flist = " ".join(filelist + files)
+        bb.debug(1, f"flist is {flist}")
+        d.setVarFlag("do_sign", "file-checksums", flist)
+}
 
 uks_get_pkcs11_proc_env[vardepsexclude] += "AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN"
 def uks_get_pkcs11_proc_env(d):
