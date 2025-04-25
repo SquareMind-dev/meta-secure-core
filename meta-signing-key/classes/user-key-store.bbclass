@@ -58,13 +58,16 @@ def uks_get_pkcs11_proc_env(d):
                 stdout, stderr = bb.process.run(aws_cred_cmd)
                 bb.debug(1, "Credential renewal process output\n%s\n%s" % (stdout, stderr))
             except bb.process.ExecutionError as err:
-                bb.fatal('Unable to renew aws credentials using %s\n%s' % (aws_cred_cmd, stderr))
+                bb.fatal('Unable to renew aws credentials using %s\n%s' % (aws_cred_cmd, err.stdout + err.stderr))
 
             for l in stdout.split("\n"):
                 l = l.strip()
                 if l == "":
                     continue
-                k, v = l.split("=")
+                try:
+                    k, v = l.split("=")
+                except ValueError:
+                    bb.fatal(f"Failed to parse output line of credential renwal script: {l}")
                 aws_creds[k] = v
 
         aws_key_id = aws_creds["AWS_ACCESS_KEY_ID"]
@@ -106,7 +109,6 @@ def uks_get_pkcs11_proc_env(d):
 
 def uks_get_shell_env_export(d):
    return "\n".join([f"export LD_LIBRARY_PATH=\"{d.getVar('STAGING_LIBDIR_NATIVE')}:$LD_LIBRARY_PATH\""] + [f"export {k}={v}" for k, v in uks_get_pkcs11_proc_env(d).items()]) if uks_signing_model(d) == "pkcs11" else ""
-
 
 def uks_dict_to_shell_env(env, d):
     return ' '.join(["%s=%s" % (k, env[k]) for k in env.keys()])
