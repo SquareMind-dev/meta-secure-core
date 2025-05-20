@@ -45,12 +45,18 @@ python __anonymous() {
         d.setVarFlag("do_sign", "file-checksums", flist)
 }
 
-uks_get_pkcs11_proc_env[vardepsexclude] += "AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN"
+uks_get_pkcs11_proc_env[vardepsexclude] += "AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_ARN"
 def uks_get_pkcs11_proc_env(d):
     mod = d.getVar("PKCS11_MODULE")
     libdir = d.getVar("STAGING_LIBDIR_NATIVE")
     dir = d.getVar("STAGING_DIR_NATIVE")
     if mod != "":
+        aws_region = d.getVar("AWS_REGION")
+        default_region = "eu-west-1"
+        if aws_region is None:
+            bb.warn("AWS_REGION is unset. Defaulting to " + default_region)
+            aws_region = default_region
+
         aws_creds = {k: d.getVar(k) for k in ["AWS_ACCESS_KEY_ID",
                                               "AWS_SECRET_ACCESS_KEY",
                                               "AWS_SESSION_TOKEN"]}
@@ -60,10 +66,20 @@ def uks_get_pkcs11_proc_env(d):
         # by the time we need them. This part therefore serves mostly
         # as a sanity check
         aws_cred_cmd = d.getVar("UKS_AWS_CRED_COMMAND")
+        aws_web_ident = d.getVar("AWS_WEB_IDENTITY_TOKEN_FILE")
+        aws_role_arn = d.getVar("AWS_ROLE_ARN")
+        web_ident_env = {}
+        if aws_web_ident is not None:
+            if aws_role_arn is None:
+                bb.fatal("When AWS_WEB_IDENTITY_TOKEN_FILE is set AWS_ROLE_ARN must also be set")
+            web_ident_env = { "AWS_WEB_IDENTITY_TOKEN_FILE": aws_web_ident,
+                              "AWS_ROLE_ARN": aws_role_arn,
+                              "AWS_REGION": aws_region}
+
         bb.debug(1, f"Using {aws_cred_cmd} for aquiring AWS credentials")
         if aws_cred_cmd:
             try:
-                stdout, stderr = bb.process.run(aws_cred_cmd)
+                stdout, stderr = bb.process.run(aws_cred_cmd, env=web_ident_env)
                 bb.debug(1, "Credential renewal process output\n%s\n%s" % (stdout, stderr))
             except bb.process.ExecutionError as err:
                 bb.fatal('Unable to renew aws credentials using %s\n%s' % (aws_cred_cmd, err.stdout + err.stderr))
@@ -89,12 +105,6 @@ def uks_get_pkcs11_proc_env(d):
             if aws_secret_key is None:
                 bb.fatal("Variable AWS_ACCESS_KEY_ID is set but AWS_SESSION_TOKEN is not")
 
-        aws_region = d.getVar("AWS_REGION")
-        default_region = "eu-west-1"
-        if aws_region is None:
-            bb.warn("AWS_REGION is unset. Defaulting to " + default_region)
-            aws_region = default_region
-
         out = {"PKCS11_MODULE_PATH": mod,
                 "AWS_KMS_PKCS11_DEBUG": "1",
                 "OPENSSL_ENGINES": os.path.join(libdir, "engines-3"),
@@ -104,7 +114,7 @@ def uks_get_pkcs11_proc_env(d):
                 # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and
                 # assuming that they are passed through
                 "AWS_KMS_PKCS11_CAFILE": os.path.join(dir, "etc", "ssl", "certs", "ca-certificates.crt"),
-                "AWS_REGION": aws_region} | \
+                "AWS_REGION": aws_region} | web_ident_env | \
                 ({"AWS_KMS_PKCS11_KEY": aws_key_id,
                 "AWS_KMS_PKCS11_SECRET": aws_secret_key,
                 "AWS_KMS_PKCS11_SESSION": aws_session_token} if aws_cred_cmd is None else {})
