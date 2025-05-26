@@ -3,7 +3,7 @@ require efitools.inc
 # The generated native binaries are used during target build
 DEPENDS += "efitools-native gnu-efi openssl"
 
-inherit user-key-store deploy
+inherit deploy
 
 EXTRA_OEMAKE:append = " \
     INCDIR_PREFIX='${STAGING_DIR_TARGET}' \

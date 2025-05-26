@@ -42,7 +42,9 @@ PARALLEL_MAKE = ""
 
 COMPATIBLE_HOST = '(i.86|x86_64|arm|aarch64).*-linux'
 
-inherit perlnative
+S = "${WORKDIR}/git"
+
+inherit user-key-store perlnative
 
 EXTRA_OEMAKE = "\
     OPENSSL='${STAGING_BINDIR_NATIVE}/openssl' \
@@ -61,20 +63,14 @@ EXTRA_OEMAKE:append:arm = " ARCH=arm"
 EFI_BOOT_PATH = "/boot/efi/EFI/BOOT"
 
 do_compile:prepend() {
-    sed -i -e "1s:#!.*:#!/usr/bin/env nativeperl:" xxdi.pl 
+    sed -i -e "1s:#!.*:#!/usr/bin/env nativeperl:" xxdi.pl
 }
-#do_compile[network] = "${SIGNING_NEEDS_NETWORK}"
-python __anonymous() {
-    if d.getVar("do_compile"):
-        needs_network = d.getVar("SIGNING_NEEDS_NETWORK", "0") == "1"
-        bb.debug(1, "Setting flags for do_compile to " + str(needs_network))
-        d.setVarFlag("do_compile", "network", needs_network)
-}
-
+do_compile[network] = "${SIGNING_NEEDS_NETWORK}"
 
 do_install() {
     oe_runmake install DESTDIR='${D}${base_prefix}'
 }
+do_install[network] = "${SIGNING_NEEDS_NETWORK}"
 
 fakeroot python do_sign:class-target() {
     if d.getVar('UEFI_SB') != '1':

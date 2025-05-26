@@ -48,6 +48,9 @@ addtask sign after do_install before do_package do_populate_sysroot do_deploy
 do_sign[prefuncs] += "check_deploy_keys"
 do_sign[prefuncs] += "${@'check_boot_public_key' if d.getVar('GRUB_SIGN_VERIFY') == '1' else ''}"
 
+# Allow using the network for signing kernel modules if required
+do_compile_kernelmodules[network] = "${SIGNING_NEEDS_NETWORK}"
+
 fakeroot python do_sign_bundled_kernel() {
     import re
 
