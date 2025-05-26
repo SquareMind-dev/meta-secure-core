@@ -63,6 +63,14 @@ EFI_BOOT_PATH = "/boot/efi/EFI/BOOT"
 do_compile:prepend() {
     sed -i -e "1s:#!.*:#!/usr/bin/env nativeperl:" xxdi.pl 
 }
+#do_compile[network] = "${SIGNING_NEEDS_NETWORK}"
+python __anonymous() {
+    if d.getVar("do_compile"):
+        needs_network = d.getVar("SIGNING_NEEDS_NETWORK", "0") == "1"
+        bb.debug(1, "Setting flags for do_compile to " + str(needs_network))
+        d.setVarFlag("do_compile", "network", needs_network)
+}
+
 
 do_install() {
     oe_runmake install DESTDIR='${D}${base_prefix}'
