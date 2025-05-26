@@ -65,6 +65,7 @@ python do_prepare_signing_keys() {
 addtask prepare_signing_keys after do_configure before do_compile
 do_prepare_signing_keys[prefuncs] += "check_deploy_keys"
 do_prepare_signing_keys[file-checksums] += "${CERTIFICATE_FILE_LIST}"
+do_compile[network] = "${SIGNING_NEEDS_NETWORK}"
 
 do_install:append() {
     if [ x"${UEFI_SB}" = x"1" ]; then
