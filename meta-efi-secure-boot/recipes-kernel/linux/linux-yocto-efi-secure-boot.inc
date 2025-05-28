@@ -50,6 +50,7 @@ do_sign[prefuncs] += "${@'check_boot_public_key' if d.getVar('GRUB_SIGN_VERIFY')
 
 # Allow using the network for signing kernel modules if required
 do_compile_kernelmodules[network] = "${SIGNING_NEEDS_NETWORK}"
+do_install[network] = "${SIGNING_NEEDS_NETWORK}"
 
 fakeroot python do_sign_bundled_kernel() {
     import re
