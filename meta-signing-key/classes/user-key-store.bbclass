@@ -72,6 +72,7 @@ def uks_get_pkcs11_proc_env(d):
         aws_web_ident = d.getVar("AWS_WEB_IDENTITY_TOKEN_FILE")
         aws_role_arn = d.getVar("AWS_ROLE_ARN")
         web_ident_env = {}
+        access_key_env = {}
         if aws_web_ident is not None:
             if aws_role_arn is None:
                 bb.fatal("When AWS_WEB_IDENTITY_TOKEN_FILE is set AWS_ROLE_ARN must also be set")
@@ -96,17 +97,21 @@ def uks_get_pkcs11_proc_env(d):
                 except ValueError:
                     bb.fatal(f"Failed to parse output line of credential renwal script: {l}")
                 aws_creds[k] = v
-
-        aws_key_id = aws_creds["AWS_ACCESS_KEY_ID"]
-        aws_secret_key = aws_creds["AWS_SECRET_ACCESS_KEY"]
-        aws_session_token = aws_creds["AWS_SESSION_TOKEN"]
-        if aws_key_id is None:
-            bb.fatal("Variable AWS_ACCESS_KEY_ID is not set but it is required for using the aws-kms-signing feature")
+        else:
+            aws_key_id = aws_creds["AWS_ACCESS_KEY_ID"]
+            aws_secret_key = aws_creds["AWS_SECRET_ACCESS_KEY"]
+            aws_session_token = aws_creds["AWS_SESSION_TOKEN"]
+            if aws_key_id is None:
+                bb.fatal("Variable AWS_ACCESS_KEY_ID is not set but it is required for using the aws-kms-signing feature")
             if aws_secret_key is None:
                 bb.fatal("Variable AWS_ACCESS_KEY_ID is set but AWS_SECRET_ACCESS_KEY is not")
 
             if aws_secret_key is None:
                 bb.fatal("Variable AWS_ACCESS_KEY_ID is set but AWS_SESSION_TOKEN is not")
+
+            access_key_env = {"AWS_KMS_PKCS11_KEY": aws_key_id,
+                              "AWS_KMS_PKCS11_SECRET": aws_secret_key,
+                              "AWS_KMS_PKCS11_SESSION": aws_session_token}
 
         out = {"PKCS11_MODULE_PATH": mod,
                 "AWS_KMS_PKCS11_DEBUG": "1",
@@ -117,10 +122,7 @@ def uks_get_pkcs11_proc_env(d):
                 # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and
                 # assuming that they are passed through
                 "AWS_KMS_PKCS11_CAFILE": os.path.join(dir, "etc", "ssl", "certs", "ca-certificates.crt"),
-                "AWS_REGION": aws_region} | web_ident_env | \
-                ({"AWS_KMS_PKCS11_KEY": aws_key_id,
-                "AWS_KMS_PKCS11_SECRET": aws_secret_key,
-                "AWS_KMS_PKCS11_SESSION": aws_session_token} if aws_cred_cmd is None else {})
+                "AWS_REGION": aws_region} | web_ident_env | access_key_env
 
         bb.debug(1, f"Returning env {out}")
         return out
