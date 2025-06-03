@@ -13,8 +13,8 @@ pkgs = "\
     grub-efi \
     efitools \
     efibootmgr \
-    mokutil \
-    shim \
+    ${SELOADER_PKG} \
+    ${@"mokutil shim" if d.getVar("MOK_SB") == "1" else ""} \
 "
 
 RDEPENDS:${PN}:x86 = "${pkgs}"
