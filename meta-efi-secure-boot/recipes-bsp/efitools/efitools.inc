@@ -28,10 +28,11 @@ SRC_URI = "git://git.kernel.org/pub/scm/linux/kernel/git/jejb/efitools.git;branc
            file://0015-fix-segfault-for-efitools-commands.patch \
            file://0016-Make.rules-Pass-CFLAGS-to-Makefile.patch \
            file://0017-Make.rules-fix-efi-files-for-gnu-efi-3.0.18.patch \
-           file://0001-add-binary-only-make-rules.patch \
-           file://0001-Fix-build-with-binutils-2.46.patch \
+           file://0018-add-binary-only-make-rules.patch \
            file://0019-Makefile-variables-for-using-a-signing-engine.patch \
-           "
+           file://0020-Free-OpenSSL-engine-only-after-signing-is-complete.patch \
+           file://0001-Fix-build-with-binutils-2.46.patch \
+"
 SRCREV = "392836a46ce3c92b55dc88a1aebbcfdfc5dcddce"
 
 DEPENDS = "openssl-native sbsigntool-native \
