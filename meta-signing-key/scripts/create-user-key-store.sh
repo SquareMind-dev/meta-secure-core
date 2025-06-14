@@ -24,6 +24,7 @@ BOOT_PASS=
 SIGNING_ENGINE=pkcs11
 SIGNING_MODEL=user
 PKCS11_TOKEN_MAP=
+ARTIFACT_MAP=
 gpg_key_name="PKG-SecureCore"
 gpg_email="SecureCore@foo.com"
 gpg_comment="Signing Key"
@@ -84,6 +85,10 @@ Options:
  --pkcs11-token-map <file>
    Specify the path to a config file following the format of
    pkcs11-token-map.conf.sample
+ --artifact-map <file>
+   Specify the path to a config file following the format of
+   artifact-map.conf.sample specifying the binary artifacts
+   that should be included in the keystore.
  -h|--help       Show this help information.
 Overides:
  -bc <gpg key comment>
@@ -197,6 +202,13 @@ while [ $# -gt 0 ]; do
             fi
             PKCS11_TOKEN_MAP="$opt"
             ;;
+        --artifact-map)
+            shift && opt="$1"
+            if [ -f "opt" ]; then
+                print_fatal "Pkcs11 token map file $opt not found"
+            fi
+            ARTIFACT_MAP="$opt"
+            ;;
         -h|--help)
             show_help "$(basename "$0")"
             exit 0
@@ -232,9 +244,14 @@ echo "KEYS_DIR: $KEYS_DIR"
 echo "KEYS_DIR yocto config: $KEYS_DIR_RENDER"
 
 UEFI_SB_KEYS_DIR="$KEYS_DIR/uefi_sb_keys"
+# We need to define it as it may be referenced from the binary
+# artifact config file
+# shellcheck disable=SC2034
+UEFI_SB_ARTIFACTS_DIR="$KEYS_DIR/uefi_sb_artifacts"
 MOK_SB_KEYS_DIR="$KEYS_DIR/mok_sb_keys"
 SYSTEM_KEYS_DIR="$KEYS_DIR/system_trusted_keys"
 IMA_KEYS_DIR="$KEYS_DIR/ima_keys"
+# shellcheck disable=SC2034
 RPM_KEYS_DIR="$KEYS_DIR/rpm_keys"
 BOOT_KEYS_DIR="$KEYS_DIR/boot_keys"
 MODSIGN_KEYS_DIR="$KEYS_DIR/modsign_keys"
@@ -245,6 +262,17 @@ pem2der() {
     local dst="${src/.crt/.der}"
 
     openssl x509 -in "$src" -outform DER -out "$dst"
+}
+
+should_generate_key() {
+    key_name="$1"
+
+    if [ "$SIGNING_MODEL" == "pkcs11" ]; then
+        token_var_name="TOKEN_KEY_${key_name}"
+        declare -p "$token_var_name" &> /dev/null
+    else
+        return 0
+    fi
 }
 
 # Returns appropriate openssl req arguments depending on if
@@ -300,6 +328,11 @@ ca_sign() {
     local ca_key_name="$4"
     local subject="$5"
     local encrypted="${6:-}"
+
+    if ! should_generate_key "$key_name"; then
+        echo "Skipping generation of $key_name since it's not defined in the pkcs11 token map"
+        return 0
+    fi
 
     # Self signing ?
     # shellcheck disable=SC2046
@@ -526,6 +559,69 @@ EOF
     cd -
 }
 
+ARTIFACT_DEFS=
+
+GITHUB_WORKS=0
+
+ensure_github() {
+    if [ "$GITHUB_WORKS" -eq "1" ]; then
+        return 0
+    fi
+
+    if /usr/bin/gh status > /dev/null; then
+        GITHUB_WORKS=1
+        return 0
+    else
+        echo "The Github CLI tool doesn't appear to be working. Please ensure that you are logged in. If not, do it by running the following command"
+        echo
+        echo "gh auth login -p ssh -h github.com --skip-ssh-key"
+    fi
+}
+
+deploy_artifacts() {
+    while read -r line; do
+        # Skip comments and blank lines
+        [[ -z "$line" || "$line" == \#* ]] && continue
+
+        # Read fields into variables
+        read -r artifact_var artifact_dest artifact_source artifact_checksum <<< "$line"
+
+        artifact_path="$(eval echo "${artifact_dest}")"
+
+        tmp_dest="$(mktemp)"
+
+        case "$artifact_source" in
+            github:*)
+                ensure_github
+
+                IFS=':' read -r _loc repo tag artifact <<< "$artifact_source"
+                /usr/bin/gh -R "$repo" release download "$tag" -p "$artifact" -O - > "$tmp_dest"
+                ;;
+            uri:*)
+                l=${artifact_source#*:}
+                curl -L "${l}" -O - > "$tmp_dest"
+                ;;
+            *)
+                echo "Invalid artifact source $artifact_source"
+                exit 1
+                ;;
+        esac
+
+        # Make sure that the SHA256 sum of the file matches
+        dst_chksum="$(sha256sum "$tmp_dest" | cut -f1 -d' ')"
+        if [ "$dst_chksum" != "$artifact_checksum" ]; then
+            echo "Artifact $artifact_dest has checksum $dst_chksum which does not match expected checksum $artifact_checksum"
+            exit 1
+        fi
+
+        mkdir -p "$(dirname "$artifact_path")"
+        mv "$tmp_dest" "$artifact_path"
+
+        ARTIFACT_DEFS="$(echo -ne "$ARTIFACT_DEFS\n${artifact_var} = \"file://${artifact_dest};sha256sum=${artifact_checksum}\"")"
+
+    done < "$ARTIFACT_MAP"
+}
+
 create_user_keys() {
     echo "Creating the user keys for UEFI Secure Boot"
     create_uefi_sb_user_keys
@@ -681,7 +777,12 @@ if [ -z "$BOOT_PASS" ]; then
 fi
 
 
-create_user_keys
+mkdir -p "$KEYS_DIR"
+if [ -n "$ARTIFACT_MAP" ]; then
+    deploy_artifacts
+fi
+
+#create_user_keys
 
 cat <<EOF > "$KEYS_DIR/keys.conf"
 MASTER_KEYS_DIR = "$KEYS_DIR_RENDER"
@@ -695,6 +796,7 @@ SYSTEM_TRUSTED_KEYS_DIR = "\${MASTER_KEYS_DIR}/system_trusted_keys"
 SECONDARY_TRUSTED_KEYS_DIR = "\${MASTER_KEYS_DIR}/secondary_trusted_keys"
 MODSIGN_KEYS_DIR = "\${MASTER_KEYS_DIR}/modsign_keys"
 UEFI_SB_KEYS_DIR = "\${MASTER_KEYS_DIR}/uefi_sb_keys"
+UEFI_SB_ARTIFACTS_DIR = "\${MASTER_KEYS_DIR}/uefi_sb_artifacts"
 GRUB_PUB_KEY = "\${MASTER_KEYS_DIR}/boot_keys/boot_pub_key"
 GRUB_PW_FILE = "\${MASTER_KEYS_DIR}/boot_keys/boot_cfg_pw"
 OSTREE_GPGDIR = "\${MASTER_KEYS_DIR}/rpm_keys"
@@ -714,6 +816,15 @@ if [ "$SIGNING_MODEL" = "pkcs11" ]; then
     cat <<EOF >> "$KEYS_DIR/keys.conf"
 # Token mappings for PKCS11 signing
 $(sed -e '/#.*/d' -e '/^$/d' -e 's/=/ = /' "$PKCS11_TOKEN_MAP")
+EOF
+fi
+
+if [ -n "$ARTIFACT_MAP" ]; then
+   cat <<EOF >> "$KEYS_DIR/keys.conf"
+
+# Defined binary artifact locations
+EXTERNAL_SB_SIGNING = "1"
+$ARTIFACT_DEFS
 EOF
 fi
 
