@@ -21,7 +21,7 @@ def uks_get_pkcs11_proc_env(d):
     mod = d.getVar("PKCS11_MODULE")
     libdir = d.getVar("STAGING_LIBDIR_NATIVE")
     dir = d.getVar("STAGING_DIR_NATIVE")
-    if mod:
+    if mod != "":
         aws_creds = {k: d.getVar(k) for k in ["AWS_ACCESS_KEY_ID",
                                               "AWS_SECRET_ACCESS_KEY",
                                               "AWS_SESSION_TOKEN"]}
@@ -91,10 +91,16 @@ def uks_dict_to_shell_env(env, d):
     return ' '.join(["%s=%s" % (k, env[k]) for k in env.keys()])
 
 def uks_get_cred_command(d):
-    return d.getVar("UKS_AWS_CRED_COMMAND") or ""
+    if uks_is_engine_signing_model(d):
+        return d.getVar("UKS_AWS_CRED_COMMAND") or ""
+    else:
+       return ""
 
 def uks_get_cred_command_list(d):
-    return [d.getVar("UKS_AWS_CRED_COMMAND")] or []
+    if uks_is_engine_signing_model(d):
+        return [d.getVar("UKS_AWS_CRED_COMMAND")] or []
+    else:
+        return []
 
 def uks_get_signing_args(d):
     if uks_signing_model(d) == "pkcs11":

@@ -30,15 +30,21 @@ do_configure:prepend() {
     if [ -f "$modsign_key" ] && [ -f "$modsign_cert" ]; then
         cat "$modsign_key" "$modsign_cert" \
         > "${B}/modsign_key.pem"
+
+        sed -i "s~%MODULE_SIG_KEY%~modsign_key.pem~g" "${B}/.config"
     elif ${@'true' if not uks_has_privkey_file(d) else 'false'} && [ -f "$modsign_cert" ]; then
         mkdir -p "${B}/certs"
-        cp "$modsign_cert" "${B}/certs/modsign_key.crt"
+        pubkey="certs/modsign_key.crt"
+        cp "$modsign_cert" "${B}/${pubkey}"
+
+        # This format for the CONFIG_MODULE_SIG_KEY variable of specifying the
+        # PKCS#11 key followed by a certificate file is implemented using
+        # patches and is not supported in the upstream kernel (see [PATCH]
+        # Extract PKCS#11 url from config parameter)
+        sed -i "s~%MODULE_SIG_KEY%~${MODULE_SIG_KEY} ${pubkey}~g" "${B}/.config"
     else
         true
     fi
-
-    sed -i "s~%MODULE_SIG_KEY%~${MODULE_SIG_KEY}~g" "${B}/.config"
-
 }
 
 module_do_install:prepend() {

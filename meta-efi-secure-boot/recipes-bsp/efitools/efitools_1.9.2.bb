@@ -17,9 +17,9 @@ EXTRA_OEMAKE:append = " \
     ${@' '.join(['SIGNING_ENV="' + uks_dict_to_shell_env(uks_get_pkcs11_proc_env(d) | \
                                 { 'LD_LIBRARY_PATH': d.getVar("STAGING_LIBDIR_NATIVE")}, d) + '" ', \
                  'SIGNING_ENV_CMD="${@uks_get_cred_command(d)}"', \
-                 'DB_KEY="' + uks_get_key(mok_sb_keys_dir(d), 'DB', d) + '"', \
-                 'KEK_KEY="' + uks_get_key(mok_sb_keys_dir(d), 'KEK', d) + '"', \
-                 'PK_KEY="' + uks_get_key(mok_sb_keys_dir(d), 'PK', d) + '"']) \
+                 'DB_KEY="' + uks_get_key(uefi_sb_keys_dir(d), 'DB', d) + '"', \
+                 'KEK_KEY="' + uks_get_key(uefi_sb_keys_dir(d), 'KEK', d) + '"', \
+                 'PK_KEY="' + uks_get_key(uefi_sb_keys_dir(d), 'PK', d) + '"']) \
                  if bb.utils.contains('DISTRO_FEATURES', 'aws-kms-signing', True, False , d) else ""} \
 "
 
