@@ -1,12 +1,6 @@
 require efitools.inc
 
-#SRC_URI += "file://${UEFI_SB_ARTIFACTS_DIR}/LockDown.efi;sha256sum=${LOCK_DOWN_EFI_SHA256SUM}"
 SRC_URI += '${@d.expand("${UEFI_SB_LOCKDOWN_EFI}")}'
-
-# python __anonymous() {
-#     lockdown_uri = d.expand(d.getVar('UEFI_SB_LOCKDOWN_EFI'))
-#     d.appendVar('SRC_URI', ' ' + lockdown_uri)
-# }
 
 do_configure[noexec] = "1"
 do_compile[noexec] = "1"
