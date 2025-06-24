@@ -238,6 +238,9 @@ def uefi_sb_keys_dir(d):
     set_keys_dir('UEFI_SB', d)
     return d.getVar('UEFI_SB_KEYS_DIR') + '/'
 
+def uefi_sb_keys(d):
+    return ['PK', 'KEK', 'DB'] if d.getVar('EXTERNAL_SB_SIGNING') == "0" else ['DB']
+
 def uefi_sb_artifacts_dir(d):
     return d.getVar('UEFI_SB_ARTIFACTS_DIR') + '/'
 
@@ -245,7 +248,7 @@ def check_uefi_sb_user_keys(d):
     dir = uefi_sb_keys_dir(d)
 
     # If the secureboot setup signing is performed externally
-    keys = ['PK', 'KEK', 'DB'] if d.getVar('EXTERNAL_SB_SIGNING') == '0' else ['DB']
+    keys = uefi_sb_keys(d)
     for _ in keys:
         if not uks_check_privkey_file(dir + _ + '.key', d):
             return False
@@ -515,7 +518,7 @@ deploy_uefi_sb_keys() {
         install -d "$deploy_dir"
 
         cp --preserve=mode -rf "${UEFI_SB_KEYS_DIR}"/* "$deploy_dir"
-        for KEY in DB KEK PK; do
+        for KEY in ${@" ".join(uefi_sb_keys(d))}; do
              openssl x509 -in "${UEFI_SB_KEYS_DIR}"/${KEY}.crt \
                  -out "$deploy_dir"/${KEY}.cer -outform DER;
         done
@@ -654,7 +657,7 @@ def gen_file_list(d):
     keys = {
         'UEFI_SB': {
             'dir': uefi_sb_keys_dir(d),
-            'keys': ['PK', 'KEK', 'DB'],
+            'keys': uefi_sb_keys(d),
             'ext': '.crt',
         },
         'MOK_SB': {
