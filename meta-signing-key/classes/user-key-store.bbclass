@@ -242,7 +242,10 @@ def uefi_sb_keys(d):
     return ['PK', 'KEK', 'DB'] if d.getVar('EXTERNAL_SB_SIGNING') == "0" else ['DB']
 
 def uefi_sb_artifacts_dir(d):
-    return d.getVar('UEFI_SB_ARTIFACTS_DIR') + '/'
+    d = d.getVar('UEFI_SB_ARTIFACTS_DIR')
+    if d is None:
+        return None
+    return d + '/'
 
 def check_uefi_sb_user_keys(d):
     dir = uefi_sb_keys_dir(d)
@@ -694,13 +697,16 @@ def gen_file_list(d):
             'dir': uefi_sb_artifacts_dir(d),
             'keys': ["LockDown"],
             "ext": ".efi",
-        }
+        },
     }
 
     res = []
 
     for k, v in keys.items():
         if d.getVar(k) != "1":
+            continue
+
+        if v['dir'] is None:
             continue
 
         for kk in v["keys"]:
