@@ -5,7 +5,7 @@ LIC_FILES_CHKSUM = "\
 
 ALLOW_EMPTY:${PN} = "1"
 
-S = "${UNPACKDIR}"
+S = "${WORKDIR}"
 
 RDEPENDS:${PN} += "\
     cryptfs-tpm2 \

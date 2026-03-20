@@ -8,7 +8,7 @@ DEPENDS = "bash-native coreutils-native efitools-native openssl-native"
 
 SRC_URI = "file://gen_sbkeys.sh"
 
-S = "${UNPACKDIR}"
+S = "${WORKDIR}"
 
 do_patch[noexec] = "1"
 do_compile[noexec] = "1"
@@ -36,7 +36,7 @@ python do_install() {
         bb.debug(2, "All UEFI keys found in '%s' to sign binaries'" % keys_dir)
         return
 
-    gen_sbkeys = d.getVar('UNPACKDIR') + "/gen_sbkeys.sh"
+    gen_sbkeys = d.getVar('WORKDIR') + "/gen_sbkeys.sh"
 
     import subprocess
     bb.debug(2, "Calling '%s' to generate UEFI keys in path: '%s'" % (gen_sbkeys, keys_dir))
