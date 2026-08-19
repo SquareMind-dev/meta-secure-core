@@ -19,6 +19,8 @@ MODULE_SIG_KEY = "${@'modsign_key.pem' if uks_signing_model(d) != 'pkcs11' else 
 
 inherit user-key-store
 
+_pubkey="certs/modsign_key.crt"
+
 do_configure:prepend() {
     if [ ${MODSIGN_ENABLED} = "1" ]; then
         modsign_key="${@uks_modsign_keys_dir(d)}/modsign_key.key"
@@ -32,18 +34,29 @@ do_configure:prepend() {
         > "${B}/modsign_key.pem"
 
         sed -i "s~%MODULE_SIG_KEY%~modsign_key.pem~g" "${B}/.config"
+
     elif ${@'true' if not uks_has_privkey_file(d) else 'false'} && [ -f "$modsign_cert" ]; then
         mkdir -p "${B}/certs"
-        pubkey="certs/modsign_key.crt"
-        cp "$modsign_cert" "${B}/${pubkey}"
+        #pubkey="certs/modsign_key.crt"
+        cp "$modsign_cert" "${B}/${_pubkey}"
 
         # This format for the CONFIG_MODULE_SIG_KEY variable of specifying the
         # PKCS#11 key followed by a certificate file is implemented using
         # patches and is not supported in the upstream kernel (see [PATCH]
         # Extract PKCS#11 url from config parameter)
-        sed -i "s~%MODULE_SIG_KEY%~${MODULE_SIG_KEY} ${pubkey}~g" "${B}/.config"
+        sed -i "s~%MODULE_SIG_KEY%~${MODULE_SIG_KEY} ${_pubkey}~g" "${B}/.config"
+
     else
         true
+    fi
+}
+
+do_shared_workdir:append() {
+    if [ -f ${B}/${_pubkey} ]; then
+        mkdir -p $kerneldir/certs
+        cp ${B}/${_pubkey} $kerneldir/certs/
+    else
+        cp ${B}/modsign_key.pem $kerneldir/
     fi
 }
 
