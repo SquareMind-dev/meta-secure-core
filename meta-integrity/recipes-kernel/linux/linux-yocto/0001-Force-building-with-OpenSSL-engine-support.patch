@@ -23,7 +23,7 @@ index 7070245edfc1..5e6d7187ca66 100644
  #include <openssl/evp.h>
  #include <openssl/pem.h>
  #include <openssl/err.h>
--#if OPENSSL_VERSION_MAJOR >= 3
+-#if OPENSSL_VERSION_NUMBER >= 0x30000000L
 -# define USE_PKCS11_PROVIDER
 -# include <openssl/provider.h>
 -# include <openssl/store.h>

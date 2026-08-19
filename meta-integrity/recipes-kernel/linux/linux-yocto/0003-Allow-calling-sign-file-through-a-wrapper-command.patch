@@ -29,8 +29,8 @@ index 6aab04ff6817..f630a31a0d94 100644
  sig-key := $(filter pkcs11:%, $(CONFIG_MODULE_SIG_KEY))
  endif
  quiet_cmd_sign = SIGN    $@
--      cmd_sign = scripts/sign-file $(CONFIG_MODULE_SIG_HASH) "$(sig-key)" certs/signing_key.x509 $@
-+      cmd_sign = $(SIGNING_ENV_CMD) scripts/sign-file $(CONFIG_MODULE_SIG_HASH) "$(sig-key)" certs/signing_key.x509 $@
+-      cmd_sign = $(objtree)/scripts/sign-file $(CONFIG_MODULE_SIG_HASH) "$(sig-key)" $(objtree)/certs/signing_key.x509 $@
++      cmd_sign = $(SIGNING_ENV_CMD) $(objtree)/scripts/sign-file $(CONFIG_MODULE_SIG_HASH) "$(sig-key)" $(objtree)/certs/signing_key.x509 $@
  
  ifeq ($(sign-only),)
  
