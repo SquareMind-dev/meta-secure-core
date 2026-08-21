@@ -148,10 +148,10 @@ def uks_get_cred_command_list(d):
     else:
         return []
 
-def uks_get_signing_args(d):
+def uks_get_signing_args(d, flag_specifier='--'):
     if uks_signing_model(d) == "pkcs11":
-        return ["--engine", "pkcs11",
-                "--keyform", "ENGINE"]
+        return [f"{flag_specifier}engine", "pkcs11",
+                f"{flag_specifier}keyform", "ENGINE"]
     else:
         return []
 
