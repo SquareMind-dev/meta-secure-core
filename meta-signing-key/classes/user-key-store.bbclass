@@ -663,11 +663,6 @@ def gen_file_list(d):
             'keys': uefi_sb_keys(d),
             'ext': '.crt',
         },
-        'MOK_SB': {
-            'dir': mok_sb_keys_dir(d),
-            'keys': ['vendor_cert', 'shim_cert'],
-            'ext': '.crt',
-        },
         'IMA': {
             'dir': uks_ima_keys_dir(d),
             'keys': ['x509_ima'],
@@ -699,6 +694,13 @@ def gen_file_list(d):
             "ext": ".efi",
         },
     }
+
+    if d.getVar('MOK_SB') == '1':
+        keys['MOK_SB'] = {
+            'dir': mok_sb_keys_dir(d),
+            'keys': ['vendor_cert', 'shim_cert'],
+            'ext': '.crt',
+        }
 
     res = []
 
