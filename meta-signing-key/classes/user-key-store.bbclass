@@ -2,7 +2,6 @@ DEPENDS:append:class-target = " \
     ${@bb.utils.contains("DISTRO_FEATURES", "efi-secure-boot", "sbsigntool-native", "", d)} \
     ${@bb.utils.contains("DISTRO_FEATURES", "efi-secure-boot", "libsign-native", "", d)} \
     openssl-native \
-    ${@bb.utils.contains("DISTRO_FEATURES", "efi-secure-boot", "efitools-native gnupg-native", "", d)} \
     ${@"aws-kms-pkcs11-native ca-certificates-native" if bb.utils.contains("DISTRO_FEATURES", "aws-kms-signing", True, False, d) and d.getVar("SIGNING_MODEL") == "pkcs11" else ""} \
 "
 
