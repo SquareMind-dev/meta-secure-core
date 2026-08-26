@@ -19,6 +19,7 @@ SRC_URI = "\
     file://0001-locate-libs-with-pkg-config.patch \
     file://0001-allow-setting-ca-bundle-from-environment.patch \
     file://0002-authentication-from-environment-variables.patch \
+    file://0003-fix-networking-operations-retry-on-timeout.patch \
 "
 SRCREV = "48fbe02bb31dcbe05e605f4dcb939165297c8d20"
 

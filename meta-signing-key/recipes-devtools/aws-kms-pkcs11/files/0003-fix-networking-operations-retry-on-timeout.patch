@@ -1,0 +1,181 @@
+From 97956f05b2737b746dc9ca9b59f99174f42f9310 Mon Sep 17 00:00:00 2001
+From: Truls Asheim <truls@asheim.dk>
+Date: Wed, 26 Aug 2026 14:26:14 +0200
+Subject: [PATCH] fix: networking operations retry on timeout
+
+This patch adds a configurable retry mechanism to the kms-pkcs11
+signing module to handle frequent timeout errors from AWS.
+
+The environment variable AWS_KMS_PKCS11_RETRIES controls how
+many times a KMS signing operation is retried after a curl timeout. It
+defaults to 10; set it to 0 to disable these retries. When debug
+logging is enabled, every signing attempt is reported.
+
+Signed-off-by: Truls Asheim <truls@squaremind.io>
+Upstream-status: Pending
+---
+ README.md          |  2 ++
+ aws_kms_pkcs11.cpp |  7 +++++--
+ aws_kms_slot.cpp   |  3 ++-
+ certificates.cpp   |  3 ++-
+ util.cpp           | 36 ++++++++++++++++++++++++++++++++++++
+ util.h             | 18 ++++++++++++++++++
+ 6 files changed, 65 insertions(+), 4 deletions(-)
+
+diff --git a/README.md b/README.md
+index beeddf1..2c27b6e 100644
+--- a/README.md
++++ b/README.md
+@@ -225,6 +225,8 @@ The `slots` key is the only supported top-level attribute at the moment. This is
+ 
+ If you are encountering errors using this provider, try setting the `AWS_KMS_PKCS11_DEBUG` environment variable to a non-empty value. This should enable debug logging to stdout from the module.
+ 
++`AWS_KMS_PKCS11_RETRIES` controls how many times AWS network operations are retried after a curl timeout. It defaults to `10`; set it to `0` to disable these retries. This applies to signing, public-key retrieval, key listing, and ACM PCA certificate retrieval. When debug logging is enabled, every attempt is reported.
++
+ # Installation
+ 
+ The easiest way to install the provider is to download the binary artifact from the GitHub releases page on this repository. Copy the `.so` to your pkcs11 directory (e.g. `/usr/lib/x86_64-linux-gnu/pkcs11`) and make sure to set it `chmod +x`. You should then create a config file as described above.
+diff --git a/aws_kms_pkcs11.cpp b/aws_kms_pkcs11.cpp
+index 8f70755..01ff822 100644
+--- a/aws_kms_pkcs11.cpp
++++ b/aws_kms_pkcs11.cpp
+@@ -1,4 +1,5 @@
+ #include <assert.h>
++#include <cstdlib>
+ #include <string.h>
+ #include <openssl/ec.h>
+ #include <openssl/evp.h>
+@@ -210,7 +211,8 @@ CK_RV C_Initialize(CK_VOID_PTR pInitArgs) {
+         req.SetLimit(1000);
+         bool has_more = true;
+         while (has_more) {
+-            Aws::KMS::Model::ListKeysOutcome res = kms.ListKeys(req);
++            Aws::KMS::Model::ListKeysOutcome res = call_aws_with_retries(
++                "KMS list keys", [&kms, &req]() { return kms.ListKeys(req); });
+             if (!res.IsSuccess()) {
+                 debug("Got error from AWS list keys: %s", res.GetError().GetMessage().c_str());
+                 result = CKR_FUNCTION_FAILED;
+@@ -801,7 +803,8 @@ CK_RV C_Sign(CK_SESSION_HANDLE hSession, CK_BYTE_PTR pData, CK_ULONG ulDataLen,
+ 
+     Aws::KMS::KMSClient kms = create_client<Aws::KMS::KMSClient>(slot.GetAwsRegion());
+ 
+-    Aws::KMS::Model::SignOutcome res = kms.Sign(req);
++    Aws::KMS::Model::SignOutcome res = call_aws_with_retries(
++        "KMS signing", [&kms, &req]() { return kms.Sign(req); });
+     if (!res.IsSuccess()) {
+         debug("Error signing: %s", res.GetError().GetMessage().c_str());
+         return CKR_FUNCTION_FAILED;
+diff --git a/aws_kms_slot.cpp b/aws_kms_slot.cpp
+index 8331491..446ea85 100644
+--- a/aws_kms_slot.cpp
++++ b/aws_kms_slot.cpp
+@@ -39,7 +39,8 @@ void AwsKmsSlot::FetchPublicKeyData() {
+ 
+     debug("Getting public key for key %s", this->kms_key_id.c_str());
+     req.SetKeyId(this->kms_key_id);
+-    Aws::KMS::Model::GetPublicKeyOutcome res = kms.GetPublicKey(req);
++    Aws::KMS::Model::GetPublicKeyOutcome res = call_aws_with_retries(
++        "KMS get public key", [&kms, &req]() { return kms.GetPublicKey(req); });
+     if (!res.IsSuccess()) {
+         debug("Got error from AWS fetching public key for key id %s: %s", this->kms_key_id.c_str(), res.GetError().GetMessage().c_str());
+         this->public_key_data = Aws::Utils::ByteBuffer();
+diff --git a/certificates.cpp b/certificates.cpp
+index 708f376..999b70b 100644
+--- a/certificates.cpp
++++ b/certificates.cpp
+@@ -67,7 +67,8 @@ X509* parseCertificateFromARN(const string &ca_arn, const string &arn, const std
+ 
+     req.SetCertificateArn(arn);
+     req.SetCertificateAuthorityArn(ca_arn);
+-    auto res = acmpca.GetCertificate(req);
++    auto res = call_aws_with_retries(
++        "ACM PCA get certificate", [&acmpca, &req]() { return acmpca.GetCertificate(req); });
+     if (!res.IsSuccess()) {
+ 	debug("Failed to retreive certificate %s from CA %s\n", arn, ca_arn);
+ 	return NULL;
+diff --git a/util.cpp b/util.cpp
+index 69592f5..26d34f4 100644
+--- a/util.cpp
++++ b/util.cpp
+@@ -1,4 +1,6 @@
+ #include <optional>
++#include <cerrno>
++#include <cstdlib>
+ #include <string.h>
+ #include <stdlib.h>
+ #include <stdio.h>
+@@ -8,6 +10,40 @@
+ #include <aws/core/Aws.h>
+ #include <aws/core/client/ClientConfiguration.h>
+ 
++static const unsigned long DEFAULT_AWS_NETWORK_RETRIES = 10;
++
++static bool parse_retry_count(const char* env_var, unsigned long* retries) {
++    const char* value = getenv(env_var);
++    if (value == NULL || value[0] == '\0') {
++        return false;
++    }
++
++    char* end = NULL;
++    errno = 0;
++    const unsigned long parsed = std::strtoul(value, &end, 10);
++    if (value[0] == '-' || errno == ERANGE || end == value || *end != '\0') {
++        debug("Invalid %s value '%s'; ignoring it.", env_var, value);
++        return false;
++    }
++
++    *retries = parsed;
++    return true;
++}
++
++unsigned long get_aws_network_retries() {
++    unsigned long retries;
++    if (parse_retry_count("AWS_KMS_PKCS11_RETRIES", &retries)) {
++        return retries;
++    }
++    return DEFAULT_AWS_NETWORK_RETRIES;
++}
++
++bool is_aws_curl_timeout(const Aws::String& message) {
++    return message.find("curlCode: 28,") != Aws::String::npos ||
++           message.find("curlCode: 28;") != Aws::String::npos ||
++           message == "curlCode: 28";
++}
++
+ Aws::Client::ClientConfiguration create_aws_config(std::string region) {
+     Aws::Client::ClientConfiguration awsConfig;
+ 
+diff --git a/util.h b/util.h
+index 4cc36ee..8956dc7 100644
+--- a/util.h
++++ b/util.h
+@@ -3,8 +3,26 @@
+ #include <aws/kms/KMSClient.h>
+ #include <optional>
+ 
++#include "debug.h"
++
+ Aws::Client::ClientConfiguration create_aws_config(std::string region);
+ std::optional<Aws::Auth::AWSCredentials> create_credentials();
++unsigned long get_aws_network_retries();
++bool is_aws_curl_timeout(const Aws::String& message);
++
++template <typename Request>
++auto call_aws_with_retries(const char* operation, Request request) -> decltype(request()) {
++    const unsigned long retries = get_aws_network_retries();
++    debug("%s attempt 1.", operation);
++    auto outcome = request();
++    for (unsigned long retry = 0;
++         !outcome.IsSuccess() && is_aws_curl_timeout(outcome.GetError().GetMessage()) && retry < retries;
++         retry++) {
++        debug("%s retry %lu after curl timeout.", operation, retry + 1);
++        outcome = request();
++    }
++    return outcome;
++}
+ 
+ template <typename Client>
+ Client create_client(const std::string &region) {
+-- 
+2.53.0
+
