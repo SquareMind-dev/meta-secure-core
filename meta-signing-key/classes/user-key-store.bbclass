@@ -71,7 +71,7 @@ def uks_get_pkcs11_proc_env(d):
         aws_cred_cmd = d.getVar("UKS_AWS_CRED_COMMAND")
         aws_web_ident = d.getVar("AWS_WEB_IDENTITY_TOKEN_FILE")
         aws_role_arn = d.getVar("AWS_ROLE_ARN")
-        web_ident_env = {}
+        web_ident_env = {'HOME': os.environ['HOME']}
         access_key_env = {}
         if aws_web_ident is not None:
             if aws_role_arn is None:
