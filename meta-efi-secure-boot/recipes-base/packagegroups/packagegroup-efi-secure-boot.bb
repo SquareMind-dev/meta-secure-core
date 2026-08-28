@@ -6,6 +6,9 @@ LIC_FILES_CHKSUM = "\
 
 S = "${WORKDIR}"
 
+# To include MOK_SB
+inherit user-key-store
+
 SELOADER_PKG = "${@'seloader' if d.getVar('UEFI_SELOADER') == '1' else ''}"
 ALLOW_EMPTY:${PN} = "1"
 
@@ -13,8 +16,8 @@ pkgs = "\
     grub-efi \
     efitools \
     efibootmgr \
-    mokutil \
-    shim \
+    ${SELOADER_PKG} \
+    ${@"mokutil shim" if d.getVar("MOK_SB") == "1" else ""} \
 "
 
 RDEPENDS:${PN}:x86 = "${pkgs}"

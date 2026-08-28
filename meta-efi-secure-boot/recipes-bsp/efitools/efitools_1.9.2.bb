@@ -3,7 +3,7 @@ require efitools.inc
 # The generated native binaries are used during target build
 DEPENDS += "efitools-native gnu-efi openssl"
 
-inherit user-key-store deploy
+inherit deploy
 
 EXTRA_OEMAKE:append = " \
     INCDIR_PREFIX='${STAGING_DIR_TARGET}' \
@@ -64,6 +64,7 @@ python do_prepare_signing_keys() {
 }
 addtask prepare_signing_keys after do_configure before do_compile
 do_prepare_signing_keys[prefuncs] += "check_deploy_keys"
+do_prepare_signing_keys[file-checksums] += "${CERTIFICATE_FILE_LIST}"
 
 do_install:append() {
     if [ x"${UEFI_SB}" = x"1" ]; then

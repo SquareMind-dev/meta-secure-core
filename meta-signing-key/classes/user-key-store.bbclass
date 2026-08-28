@@ -17,11 +17,49 @@ SECONDARY_TRUSTED = '${@"1" if d.getVar("SYSTEM_TRUSTED") == "1" else "0"}'
 RPM ?= '1'
 PKCS11_MODULE = '${@"${STAGING_LIBDIR_NATIVE}/pkcs11/aws_kms_pkcs11.so" if bb.utils.contains("DISTRO_FEATURES", "aws-kms-signing", True, False, d) and d.getVar("SIGNING_MODEL") == "pkcs11" else ""}'
 
+# We also need internet access for signing native builds
+DISTRO_FEATURES_FILTER_NATIVE += "aws-kms-signing"
+SIGNING_NEEDS_NETWORK = "${@bb.utils.contains('DISTRO_FEATURES', 'aws-kms-signing', '1', '0', d)}"
+
+# This variable contains the accumulated hash of currently enabled
+# certificates. It is used in build recipes to ensure that tasks that
+# use the certificate store are rerun when the certificates change.
+#
+# This be ensured by adding the variable to the file-checksums
+# property of a task in a recipe that inherits this class, for example:
+#
+#   inherit user-key-store
+#   [...]
+#   do_compile[file-checksums] += "${CERTIFICATE_FILE_LIST}"
+#
+CERTIFICATE_FILE_LIST = "${@gen_file_list(d)}"
+
+# Set file-checksums dependencies of all do_sign tasks and allow
+# do_sign to use the network
+python __anonymous() {
+    if d.getVar("do_sign"):
+        bb.debug(1, "Setting flags for do_sign")
+        d.setVarFlag("do_sign", "network", "1")
+        files = list(filter(lambda x: x is not None, [d.getVarFlag("do_sign", "file-checksums")]))
+        filelist = [d.getVar("CERTIFICATE_FILE_LIST")]
+        assert(filelist[0] is not None)
+        flist = " ".join(filelist + files)
+        bb.debug(1, f"flist is {flist}")
+        d.setVarFlag("do_sign", "file-checksums", flist)
+}
+
+uks_get_pkcs11_proc_env[vardepsexclude] += "AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_ARN"
 def uks_get_pkcs11_proc_env(d):
     mod = d.getVar("PKCS11_MODULE")
     libdir = d.getVar("STAGING_LIBDIR_NATIVE")
     dir = d.getVar("STAGING_DIR_NATIVE")
     if mod != "":
+        aws_region = d.getVar("AWS_REGION")
+        default_region = "eu-west-1"
+        if aws_region is None:
+            bb.warn("AWS_REGION is unset. Defaulting to " + default_region)
+            aws_region = default_region
+
         aws_creds = {k: d.getVar(k) for k in ["AWS_ACCESS_KEY_ID",
                                               "AWS_SECRET_ACCESS_KEY",
                                               "AWS_SESSION_TOKEN"]}
@@ -31,37 +69,49 @@ def uks_get_pkcs11_proc_env(d):
         # by the time we need them. This part therefore serves mostly
         # as a sanity check
         aws_cred_cmd = d.getVar("UKS_AWS_CRED_COMMAND")
+        aws_web_ident = d.getVar("AWS_WEB_IDENTITY_TOKEN_FILE")
+        aws_role_arn = d.getVar("AWS_ROLE_ARN")
+        web_ident_env = {}
+        access_key_env = {}
+        if aws_web_ident is not None:
+            if aws_role_arn is None:
+                bb.fatal("When AWS_WEB_IDENTITY_TOKEN_FILE is set AWS_ROLE_ARN must also be set")
+            web_ident_env = { "AWS_WEB_IDENTITY_TOKEN_FILE": aws_web_ident,
+                              "AWS_ROLE_ARN": aws_role_arn,
+                              "AWS_REGION": aws_region}
+
         bb.debug(1, f"Using {aws_cred_cmd} for aquiring AWS credentials")
         if aws_cred_cmd:
             try:
-                stdout, stderr = bb.process.run(aws_cred_cmd)
+                stdout, stderr = bb.process.run(aws_cred_cmd, env=web_ident_env)
                 bb.debug(1, "Credential renewal process output\n%s\n%s" % (stdout, stderr))
             except bb.process.ExecutionError as err:
-                bb.fatal('Unable to renew aws credentials using %s\n%s' % (aws_cred_cmd, stderr))
+                bb.fatal('Unable to renew aws credentials using %s\n%s' % (aws_cred_cmd, err.stdout + err.stderr))
 
             for l in stdout.split("\n"):
                 l = l.strip()
                 if l == "":
                     continue
-                k, v = l.split("=")
+                try:
+                    k, v = l.split("=")
+                except ValueError:
+                    bb.fatal(f"Failed to parse output line of credential renwal script: {l}")
                 aws_creds[k] = v
-
-        aws_key_id = aws_creds["AWS_ACCESS_KEY_ID"]
-        aws_secret_key = aws_creds["AWS_SECRET_ACCESS_KEY"]
-        aws_session_token = aws_creds["AWS_SESSION_TOKEN"]
-        if aws_key_id is None:
-            bb.fatal("Variable AWS_ACCESS_KEY_ID is not set but it is required for using the aws-kms-signing feature")
+        else:
+            aws_key_id = aws_creds["AWS_ACCESS_KEY_ID"]
+            aws_secret_key = aws_creds["AWS_SECRET_ACCESS_KEY"]
+            aws_session_token = aws_creds["AWS_SESSION_TOKEN"]
+            if aws_key_id is None:
+                bb.fatal("Variable AWS_ACCESS_KEY_ID is not set but it is required for using the aws-kms-signing feature")
             if aws_secret_key is None:
                 bb.fatal("Variable AWS_ACCESS_KEY_ID is set but AWS_SECRET_ACCESS_KEY is not")
 
             if aws_secret_key is None:
                 bb.fatal("Variable AWS_ACCESS_KEY_ID is set but AWS_SESSION_TOKEN is not")
 
-        aws_region = d.getVar("AWS_REGION")
-        default_region = "eu-west-1"
-        if aws_region is None:
-            bb.warn("AWS_REGION is unset. Defaulting to " + default_region)
-            aws_region = default_region
+            access_key_env = {"AWS_KMS_PKCS11_KEY": aws_key_id,
+                              "AWS_KMS_PKCS11_SECRET": aws_secret_key,
+                              "AWS_KMS_PKCS11_SESSION": aws_session_token}
 
         out = {"PKCS11_MODULE_PATH": mod,
                 "AWS_KMS_PKCS11_DEBUG": "1",
@@ -72,10 +122,7 @@ def uks_get_pkcs11_proc_env(d):
                 # AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY and
                 # assuming that they are passed through
                 "AWS_KMS_PKCS11_CAFILE": os.path.join(dir, "etc", "ssl", "certs", "ca-certificates.crt"),
-                "AWS_REGION": aws_region} | \
-                ({"AWS_KMS_PKCS11_KEY": aws_key_id,
-                "AWS_KMS_PKCS11_SECRET": aws_secret_key,
-                "AWS_KMS_PKCS11_SESSION": aws_session_token} if aws_cred_cmd is None else {})
+                "AWS_REGION": aws_region} | web_ident_env | access_key_env
 
         bb.debug(1, f"Returning env {out}")
         return out
@@ -85,7 +132,6 @@ def uks_get_pkcs11_proc_env(d):
 
 def uks_get_shell_env_export(d):
    return "\n".join([f"export LD_LIBRARY_PATH=\"{d.getVar('STAGING_LIBDIR_NATIVE')}:$LD_LIBRARY_PATH\""] + [f"export {k}={v}" for k, v in uks_get_pkcs11_proc_env(d).items()]) if uks_signing_model(d) == "pkcs11" else ""
-
 
 def uks_dict_to_shell_env(env, d):
     return ' '.join(["%s=%s" % (k, env[k]) for k in env.keys()])
@@ -569,6 +615,13 @@ def set_keys_dir(name, d):
     if d.getVar(name + '_KEYS_DIR') == d.getVar('SAMPLE_' + name + '_KEYS_DIR'):
         d.setVar(name + '_KEYS_DIR', d.getVar('DEPLOY_DIR_IMAGE') + '/user-keys/' + name.lower() + '_keys')
 
+def get_keys_dir(name, d):
+    if d.getVar(name) != "1":
+        return None
+
+    return d.getVar(name + '_KEYS_DIR')
+
+
 python check_deploy_keys() {
     for _ in ('UEFI_SB', 'MOK_SB', 'IMA', 'SYSTEM_TRUSTED', 'SECONDARY_TRUSTED', 'MODSIGN', 'RPM'):
         if d.getVar(_) != "1":
@@ -586,6 +639,56 @@ python check_deploy_keys() {
 }
 
 check_deploy_keys[lockfiles] = "${TMPDIR}/check_deploy_keys.lock"
+
+def gen_file_list(d):
+    keys = {
+        'UEFI_SB': {
+            'dir': uefi_sb_keys_dir(d),
+            'keys': ['PK', 'KEK', 'DB'],
+            'ext': '.crt',
+        },
+        'MOK_SB': {
+            'dir': mok_sb_keys_dir(d),
+            'keys': ['vendor_cert', 'shim_cert'],
+            'ext': '.crt',
+        },
+        'IMA': {
+            'dir': uks_ima_keys_dir(d),
+            'keys': ['x509_ima'],
+            'ext': '.der',
+        },
+        'SYSTEM_TRUSTED': {
+            'dir': uks_system_trusted_keys_dir(d),
+            'keys': ['system_trusted_key'],
+            'ext': '.crt',
+        },
+        'SECONDARY_TRUSTED': {
+            'dir': uks_secondary_trusted_keys_dir(d),
+            'keys': ['secondary_trusted_key'],
+            'ext': '.crt',
+        },
+        'MODSIGN': {
+            'dir': uks_modsign_keys_dir(d),
+            'keys': ['modsign_key'],
+            'ext': '.crt',
+        },
+        'RPM': {
+            'dir': uks_rpm_keys_dir(d),
+            'keys': ['RPM-GPG-KEY-'],
+            'ext': d.getVar('RPM_GPG_NAME'),
+        },
+    }
+
+    res = []
+
+    for k, v in keys.items():
+        if d.getVar(k) != "1":
+            continue
+
+        for kk in v["keys"]:
+            res.append(os.path.join(v['dir'], kk + v['ext']) + ":True")
+
+    return " ".join(res)
 
 def check_gpg_key(basekeyname, keydirfunc, d):
     gpg_path = d.getVar('GPG_PATH')

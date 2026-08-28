@@ -48,6 +48,10 @@ addtask sign after do_install before do_package do_populate_sysroot do_deploy
 do_sign[prefuncs] += "check_deploy_keys"
 do_sign[prefuncs] += "${@'check_boot_public_key' if d.getVar('GRUB_SIGN_VERIFY') == '1' else ''}"
 
+# Allow using the network for signing kernel modules if required
+do_compile_kernelmodules[network] = "${SIGNING_NEEDS_NETWORK}"
+do_install[network] = "${SIGNING_NEEDS_NETWORK}"
+
 fakeroot python do_sign_bundled_kernel() {
     import re
 
@@ -81,6 +85,8 @@ fakeroot python do_sign_bundled_kernel() {
 }
 do_sign_bundled_kernel[prefuncs] += "check_deploy_keys"
 do_sign_bundled_kernel[prefuncs] += "${@'check_boot_public_key' if d.getVar('GRUB_SIGN_VERIFY') == '1' else ''}"
+do_sign_bundled_kernel[file-checksums] += "${CERTIFICATE_FILE_LIST}"
+do_sign_bundled_kernel[network] = "${SIGNING_NEEDS_NETWORK}"
 
 python() {
     if d.getVar('INITRAMFS_IMAGE') and bb.utils.to_boolean(d.getVar('INITRAMFS_IMAGE_BUNDLE')):

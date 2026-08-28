@@ -28,10 +28,11 @@ SRC_URI = "git://git.kernel.org/pub/scm/linux/kernel/git/jejb/efitools.git;branc
            file://0015-fix-segfault-for-efitools-commands.patch \
            file://0016-Make.rules-Pass-CFLAGS-to-Makefile.patch \
            file://0017-Make.rules-fix-efi-files-for-gnu-efi-3.0.18.patch \
-           file://0001-add-binary-only-make-rules.patch \
-           file://0001-Fix-build-with-binutils-2.46.patch \
+           file://0018-add-binary-only-make-rules.patch \
            file://0019-Makefile-variables-for-using-a-signing-engine.patch \
-           "
+           file://0020-Free-OpenSSL-engine-only-after-signing-is-complete.patch \
+           file://0001-Fix-build-with-binutils-2.46.patch \
+"
 SRCREV = "392836a46ce3c92b55dc88a1aebbcfdfc5dcddce"
 
 DEPENDS = "openssl-native sbsigntool-native \
@@ -42,7 +43,9 @@ PARALLEL_MAKE = ""
 
 COMPATIBLE_HOST = '(i.86|x86_64|arm|aarch64).*-linux'
 
-inherit perlnative
+S = "${WORKDIR}/git"
+
+inherit user-key-store perlnative
 
 EXTRA_OEMAKE = "\
     OPENSSL='${STAGING_BINDIR_NATIVE}/openssl' \
@@ -61,12 +64,14 @@ EXTRA_OEMAKE:append:arm = " ARCH=arm"
 EFI_BOOT_PATH = "/boot/efi/EFI/BOOT"
 
 do_compile:prepend() {
-    sed -i -e "1s:#!.*:#!/usr/bin/env nativeperl:" xxdi.pl 
+    sed -i -e "1s:#!.*:#!/usr/bin/env nativeperl:" xxdi.pl
 }
+do_compile[network] = "${SIGNING_NEEDS_NETWORK}"
 
 do_install() {
     oe_runmake install DESTDIR='${D}${base_prefix}'
 }
+do_install[network] = "${SIGNING_NEEDS_NETWORK}"
 
 fakeroot python do_sign:class-target() {
     if d.getVar('UEFI_SB') != '1':

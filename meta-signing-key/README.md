@@ -66,6 +66,21 @@ meaning the following precautions:
 For the details about UEFI secure boot and MOK secure boot, please refer
 to meta-efi-secure-boot/README.md.
 
+When using the certificates in the key store in recipes, it is
+important to ensure that tasks that depends on the certificates are
+re-run when the certificates change. For convenience, the
+user-keys-tore class defined the variable `CERTIFICATE_FILE_LIST` that
+contains a list of all certificate files in the certificate store in a
+format that can be passed to the file-checksums task attribute. For
+example, to make a `do_compile` action that depends on the
+certificates rerun when the certificates change, do the following:
+
+```
+inherit user-key-store
+[...]
+do_compile[file-checksums] += "${CERTIFICATE_FILE_LIST}"
+```
+
 Patches
 =======
 
