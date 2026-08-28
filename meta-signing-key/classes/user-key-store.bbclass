@@ -8,6 +8,7 @@ DEPENDS:append:class-target = " \
 
 USER_KEY_SHOW_VERBOSE = "1"
 
+EXTERNAL_SB_SIGNING ?= '0'
 UEFI_SB = '${@bb.utils.contains("DISTRO_FEATURES", "efi-secure-boot", "1", "0", d)}'
 MOK_SB ?= '${@bb.utils.contains("DISTRO_FEATURES", "efi-secure-boot", "1", "0", d)}'
 MODSIGN = '${@bb.utils.contains("DISTRO_FEATURES", "modsign", "1", "0", d)}'
@@ -203,12 +204,16 @@ def uks_check_privkey_file(file, d):
     return True
 
 def uks_get_key(dir, key, d):
+    expected_keys = ['PK', 'KEK', 'DB'] if d.getVar('EXTERNAL_SB_SIGNING') == '0' else ['DB']
     if uks_signing_model(d) == "pkcs11":
-        var = "TOKEN_KEY_" + key
-        v = d.getVar(var)
-        if v is None:
-            bb.fatal("Signing model is pkcs11 but the variable %s is not defined" % var)
-        return v
+        if key in expected_keys:
+            var = "TOKEN_KEY_" + key
+            v = d.getVar(var)
+            if v is None:
+                bb.fatal("Signing model is pkcs11 but the variable %s is not defined" % var)
+            return v
+        else:
+            return ""
     else:
         return os.path.join(dir, key + ".key")
 
@@ -233,10 +238,21 @@ def uefi_sb_keys_dir(d):
     set_keys_dir('UEFI_SB', d)
     return d.getVar('UEFI_SB_KEYS_DIR') + '/'
 
+def uefi_sb_keys(d):
+    return ['PK', 'KEK', 'DB'] if d.getVar('EXTERNAL_SB_SIGNING') == "0" else ['DB']
+
+def uefi_sb_artifacts_dir(d):
+    d = d.getVar('UEFI_SB_ARTIFACTS_DIR')
+    if d is None:
+        return None
+    return d + '/'
+
 def check_uefi_sb_user_keys(d):
     dir = uefi_sb_keys_dir(d)
 
-    for _ in ('PK', 'KEK', 'DB'):
+    # If the secureboot setup signing is performed externally
+    keys = uefi_sb_keys(d)
+    for _ in keys:
         if not uks_check_privkey_file(dir + _ + '.key', d):
             return False
 
@@ -505,7 +521,7 @@ deploy_uefi_sb_keys() {
         install -d "$deploy_dir"
 
         cp --preserve=mode -rf "${UEFI_SB_KEYS_DIR}"/* "$deploy_dir"
-        for KEY in DB KEK PK; do
+        for KEY in ${@" ".join(uefi_sb_keys(d))}; do
              openssl x509 -in "${UEFI_SB_KEYS_DIR}"/${KEY}.crt \
                  -out "$deploy_dir"/${KEY}.cer -outform DER;
         done
@@ -644,7 +660,7 @@ def gen_file_list(d):
     keys = {
         'UEFI_SB': {
             'dir': uefi_sb_keys_dir(d),
-            'keys': ['PK', 'KEK', 'DB'],
+            'keys': uefi_sb_keys(d),
             'ext': '.crt',
         },
         'MOK_SB': {
@@ -677,12 +693,20 @@ def gen_file_list(d):
             'keys': ['RPM-GPG-KEY-'],
             'ext': d.getVar('RPM_GPG_NAME'),
         },
+        'ARTIFACT': {
+            'dir': uefi_sb_artifacts_dir(d),
+            'keys': ["LockDown"],
+            "ext": ".efi",
+        },
     }
 
     res = []
 
     for k, v in keys.items():
         if d.getVar(k) != "1":
+            continue
+
+        if v['dir'] is None:
             continue
 
         for kk in v["keys"]:

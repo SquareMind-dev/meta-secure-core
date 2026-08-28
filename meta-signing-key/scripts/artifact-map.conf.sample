@@ -1,0 +1,24 @@
+# Whitespace separated map in the following format (No spaces allowed in fields)
+
+# The file contains four fields which are:
+
+#   - The yocto variable in the keystore that should be set to the artifact path and checksum. The variable will be defined to match the format expected by the SRC_URI variable of bitbake. Since it's a string, it must be used together with d.expand in recipes, for example
+
+SRC_URI += "${@d.expand("${UEFI_SB_LOCKDOWN_EFI}")}"
+
+
+#   - The artifact destination file in the keystore artifact directory. The destination can reference yocto variables and will be used verbatim in the value of <YOCTO_VARIABLE>
+#   - The artifact soruce (see below)
+#   - The sha256 checksum of the artifact
+
+# For the artifact source value the following applies:
+# The value uri: is passed directly to curl
+
+# The value github: takes 4 values in the following format
+# github:repo_owner/repo:tag:release_artifact
+# To use this, the gh cli tool must be available and configured
+
+# Any fetched artifact is compared against the value in checksum
+
+# Variable name        Artifact dest file name                   Artifact source     Checksum (sha256)
+<YOCTO_VARIABLE>         <filename in artifact dir>                <github|uri:...>    <sha256checksum>
