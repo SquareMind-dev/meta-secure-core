@@ -27,6 +27,8 @@ SRC_URI = "\
 
 SRCREV = "7b7a5ea9a4538c19a25cebfd36c0fef0cb44ee97"
 
+S = "${WORKDIR}/git"
+
 UPSTREAM_CHECK_GITTAGREGEX = "cryptfs-tpm2-(?P<pver>\d+(\.\d+)+)$"
 
 EXTRA_OEMAKE = "\

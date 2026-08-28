@@ -1,10 +1,14 @@
 #!/bin/bash
 
+set -euo pipefail
+
 _S="${BASH_SOURCE[0]}"
-_D=`dirname "$_S"`
-ROOT_DIR="`cd "$_D" && pwd`"
+_D="$(dirname "$_S")"
+ROOT_DIR="$(cd "$_D" && pwd)"
 
 KEYS_DIR="$ROOT_DIR/user-keys"
+BASE_KEYS_SUBS=
+BASE_KEYS_DIR=
 OPENSSL_DAYS="3650"
 GPG_KEYNAME=
 GPG_EMAIL=
@@ -12,10 +16,14 @@ GPG_COMMENT=
 BOOT_GPG_KEYNAME=
 BOOT_GPG_EMAIL=
 BOOT_GPG_COMMENT=
-EMPTY_PW=0
+BOOT_GPG_PASS=
 GPG_PASS=
 GPG_BIN=${GPG_BIN=gpg}
 IMA_PASS=
+BOOT_PASS=
+SIGNING_ENGINE=pkcs11
+SIGNING_MODEL=user
+PKCS11_TOKEN_MAP=
 gpg_key_name="PKG-SecureCore"
 gpg_email="SecureCore@foo.com"
 gpg_comment="Signing Key"
@@ -36,7 +44,23 @@ Usage: $1 options...
 Options:
  -d <dir>
     Set the path to save the generated user keys.
-    Default: `pwd`/user-keys
+    If <dir> is relative, the dir is appended to
+    the basepath given in the -bd option. If path
+    is absolute, the base directories of the path
+    must match the path given the -bd option. If
+    the -bd option is not given, <dir> is used as is.
+    Default: $(pwd)/user-keys
+ -bd <basedir_subs>=<path>
+    The base directory of the generated certificate
+    store and the configuration value it should be
+    mapped to. This is useful when the deployed
+    location of the keystore is different from
+    the path where it was created
+    Example: -bd "$""{TOPDIR}/my/keystore/location/=/my/yocto/directory/meta-secure-core/meta-signing-key
+             In the generated keys.conf file, the
+             base path used in the MASTER_KEYS_DIR will
+             be substituted with <basedir_subs>
+ -s Run in script (non-interactive) mode
  -c <gpg key comment>
     Set the RPM/OStree gpg's key name
     Default: $gpg_comment
@@ -52,6 +76,14 @@ Options:
  -ip <IMA passphrase>
  --days          Specify the number of days to make a certificate valid for
                  Default: $OPENSSL_DAYS
+ --signing-model <user|pkcs11>
+   Set the signing model to generate the keystore for. user will generate
+   a keystore backed by file-based private keys. pkcs11 will generate
+   a keystore where the certificates are signed using pkcs11 giving the
+   possibility to not store the private keys as files.
+ --pkcs11-token-map <file>
+   Specify the path to a config file following the format of
+   pkcs11-token-map.conf.sample
  -h|--help       Show this help information.
 Overides:
  -bc <gpg key comment>
@@ -106,6 +138,14 @@ while [ $# -gt 0 ]; do
         -d)
             shift && KEYS_DIR="$1"
             ;;
+        -bd) shift
+             IFS='=' read -r base_dir_var base_dir_path <<< "$1"
+             if [ -z "$base_dir_path" ]; then
+                 print_fatal "ERROR: The -bd parameter argument must follow the format VAR=dir"
+             fi
+             BASE_KEYS_SUBS="$base_dir_var"
+             BASE_KEYS_DIR="$base_dir_path"
+             ;;
         -c)
             shift && GPG_COMMENT="$1"
             ;;
@@ -139,8 +179,26 @@ while [ $# -gt 0 ]; do
         --days)
             shift && OPENSSL_DAYS="$1"
             ;;
+        --signing-model)
+            shift && opt="$1"
+            case "$opt" in
+                user|pkcs11)
+                    SIGNING_MODEL="$opt"
+                    ;;
+                *)
+                    print_fatal "--signing-model must be one of user or pkcs11 not $opt"
+                    ;;
+            esac
+            ;;
+        --pkcs11-token-map)
+            shift && opt="$1"
+            if [ -f "opt" ]; then
+                print_fatal "Pkcs11 token map file $opt not found"
+            fi
+            PKCS11_TOKEN_MAP="$opt"
+            ;;
         -h|--help)
-            show_help `basename $0`
+            show_help "$(basename "$0")"
             exit 0
             ;;
         *)
@@ -150,7 +208,28 @@ while [ $# -gt 0 ]; do
     shift
 done
 
+KEYS_DIR_RENDER="$(realpath --no-symlinks "$KEYS_DIR")"
+if [ -n "$BASE_KEYS_SUBS" ]; then
+    # Path must end in / to prevent BASE_KEYS_DIR from substituting
+    # part of a path component in KEYS_DIR
+    BASE_KEYS_DIR="${BASE_KEYS_DIR%/}/"
+    # Check if -bd path is a subpath of -d if -d is absolute or append
+    # -bd to -d if it's relative
+    case "$KEYS_DIR" in
+        /*)
+            if [ "${KEYS_DIR##"$BASE_KEYS_DIR"}" == "${KEYS_DIR}" ]; then
+                print_fatal "$BASE_KEYS_DIR is not a subpath of $KEYS_DIR"
+            fi
+            ;;
+        *)
+            KEYS_DIR="${KEYS_DIR%/}/${BASE_KEYS_DIR}"
+            ;;
+    esac
+    KEYS_DIR_RENDER="$BASE_KEYS_SUBS/${KEYS_DIR##"$BASE_KEYS_DIR"}"
+fi
+
 echo "KEYS_DIR: $KEYS_DIR"
+echo "KEYS_DIR yocto config: $KEYS_DIR_RENDER"
 
 UEFI_SB_KEYS_DIR="$KEYS_DIR/uefi_sb_keys"
 MOK_SB_KEYS_DIR="$KEYS_DIR/mok_sb_keys"
@@ -168,28 +247,75 @@ pem2der() {
     openssl x509 -in "$src" -outform DER -out "$dst"
 }
 
+# Returns appropriate openssl req arguments depending on if
+# a file-backed or engine-backed signing method is used
+key_param() {
+    key_dir="$1"
+    key_name="$2"
+
+    case "$SIGNING_MODEL" in
+        user)
+            echo "-newkey rsa:2048 \
+                  -keyout $key_dir/$key_name.key"
+            ;;
+        pkcs11)
+            token_var_name="TOKEN_KEY_${key_name}"
+            echo "-engine ${SIGNING_ENGINE} \
+                  -key ${!token_var_name} \
+                  -keyform engine"
+            ;;
+        *)
+            print_fatal "Invalid signing model"
+            ;;
+    esac
+}
+
+# Returns appropriate openssl req arguments depending on ife
+# a file-backed or engine-backed signing method is used
+ca_key_param() {
+    key_dir="$1"
+    key_name="$2"
+
+    case "$SIGNING_MODEL" in
+        user)
+            echo "-CAkey $key_dir/$key_name.key"
+            ;;
+        pkcs11)
+            token_var_name="TOKEN_KEY_${key_name}"
+            echo "-engine ${SIGNING_ENGINE} \
+                  -CAkey ${!token_var_name} \
+                  -CAkeyform engine"
+            ;;
+        *)
+            print_fatal "Invalid signing model"
+            ;;
+    esac
+}
+
+
 ca_sign() {
     local key_dir="$1"
     local key_name="$2"
     local ca_key_dir="$3"
     local ca_key_name="$4"
     local subject="$5"
-    local encrypted="$6"
+    local encrypted="${6:-}"
 
     # Self signing ?
+    # shellcheck disable=SC2046
     if [ "$key_name" = "$ca_key_name" ]; then
-        openssl req -new -x509 -newkey rsa:2048 \
-            -sha256 -nodes -days $OPENSSL_DAYS \
+        openssl req -new -x509 \
+            -sha256 -nodes -days "$OPENSSL_DAYS" \
             -subj "$subject" \
-            -keyout "$key_dir/$key_name.key" \
+             $(key_param "$key_dir" "$key_name") \
             -out "$key_dir/$key_name.crt" \
                 || print_fatal "openssl failure"
     else
         if [ -z "$encrypted" ]; then
-            openssl req -new -newkey rsa:2048 \
+            openssl req -new \
                 -sha256 -nodes \
                 -subj "$subject" \
-                -keyout "$key_dir/$key_name.key" \
+                $(key_param "$key_dir" "$key_name") \
                 -out "$key_dir/$key_name.csr" \
                     || print_fatal "openssl failure"
         else
@@ -225,17 +351,17 @@ ca_sign() {
             ca_cert_form="DER"
         }
 
-        if [ -z "$encrypted" ]; then
-            local extfile="openssl.cnf"
-        else
+        if [ "$key_name" = "x509_ima" ]; then
             local extfile="openssl-ima.cnf"
+        else
+            local extfile="openssl.cnf"
         fi
 
         openssl x509 -req -in "$key_dir/$key_name.csr" \
             -CA "$ca_cert" \
             -CAform "$ca_cert_form" \
-            -CAkey "$ca_key_dir/$ca_key_name.key" \
-            -set_serial 1 -days $OPENSSL_DAYS \
+            $(ca_key_param "$ca_key_dir" "$ca_key_name") \
+            -set_serial 1 -days "$OPENSSL_DAYS" \
             -extfile "$ROOT_DIR/$extfile" -extensions v3_req \
             -out "$key_dir/$key_name.crt" \
                 || print_fatal "openssl failure"
@@ -300,36 +426,43 @@ create_ima_user_key() {
 
     [ ! -d "$key_dir" ] && mkdir -p "$key_dir"
 
+    # Encrypting the IMA signing key only makes sense for signing
+    # models that store private keys as files
+    encrypted=""
+    if [ "$SIGNING_MODEL" = "user" ]; then
+        encrypted="enc"
+    fi
     ca_sign "$key_dir" x509_ima "$SYSTEM_KEYS_DIR" system_trusted_key \
-        "/CN=IMA Trusted Certificate/" "enc"
+        "/CN=IMA Trusted Certificate/" $encrypted
 
     pem2der "$key_dir/x509_ima.crt"
     rm -f "$key_dir/x509_ima.crt"
 }
 
 create_boot_pw_key() {
-        local bootprog=`which grub-mkpasswd-pbkdf2`
+        local bootprog
+        bootprog=$(which grub-mkpasswd-pbkdf2)
         if [ "$bootprog" = "" ] ; then
             # Locate grub2-mkpasswd-pbkdf2 on RHEL/CentOS/Fedora
-            bootprog=`which grub2-mkpasswd-pbkdf2`
+            bootprog=$(which grub2-mkpasswd-pbkdf2)
             if [ "$bootprog" = "" ] ; then
                 print_fatal "ERROR could not locate \"grub-mkpasswd-pbkdf2\" or \"grub2-mkpasswd-pbkdf2\" please install it or set the path to the host native sysroot"
             fi
         fi
-        (echo "$BOOT_PASS"; echo "$BOOT_PASS") | $bootprog > $BOOT_KEYS_DIR/boot_cfg_pw.tmp
-        if [ $? != 0 ] ; then
+        if ! (echo "$BOOT_PASS"; echo "$BOOT_PASS") | "$bootprog" > "$BOOT_KEYS_DIR/boot_cfg_pw.tmp"; then
             print_fatal "ERROR failed to run grub-mkpasswd-mpkdf2 to generate password"
         fi
-        cat $BOOT_KEYS_DIR/boot_cfg_pw.tmp |grep grub.pbkdf2 |sed -e 's/.*grub.pbkdf2/grub.pbkdf2/' > $BOOT_KEYS_DIR/boot_cfg_pw
-        rm -f $BOOT_KEYS_DIR/boot_cfg_pw.tmp
+        grep grub.pbkdf2 "$BOOT_KEYS_DIR/boot_cfg_pw.tmp" | sed -e 's/.*grub.pbkdf2/grub.pbkdf2/' > "$BOOT_KEYS_DIR/boot_cfg_pw"
+        rm -f "$BOOT_KEYS_DIR/boot_cfg_pw.tmp"
 
 }
 
 create_gpg_user_key() {
-    local gpg_ver=`$GPG_BIN --version | head -1 | awk '{ print $3 }' | awk -F. '{ print $1 }'`
+    local gpg_ver
+    gpg_ver=$("$GPG_BIN" --version | head -1 | awk '{ print $3 }' | awk -F. '{ print $1 }')
     local key_dir="$1"
 
-    [ ! -d "$key_dir" ] && mkdir -m 0700 -p "$key_dir"
+    [ ! -d "$key_dir" ] && install -d -m 0700 "$key_dir"
 
     local home_dir="$key_dir"
     if [ -n "$GPG_PATH" ]; then
@@ -347,7 +480,7 @@ create_gpg_user_key() {
     local comment="$5"
     local email="$6"
 
-    if [ "$gpg_ver" != "1" -a "$gpg_ver" != "2" ]; then
+    if [ "$gpg_ver" != "1" ] && [ "$gpg_ver" != "2" ]; then
         print_fatal "ERROR: GPG Version 1 or 2 are required for key generation and signing"
     fi
     cat >"$key_dir/gen_keyring" <<EOF
@@ -364,18 +497,16 @@ EOF
 
     pinentry=""
     if [ "$gpg_ver" = "2" ] ; then
-            gpg_ver_whole=`gpg --version | head -1 | awk '{ print $3 }'`
+            gpg_ver_whole=$(gpg --version | head -1 | awk '{ print $3 }')
             if [ "$gpg_ver_whole" != "2.0.22" ] ; then
                 pinentry="--pinentry-mode=loopback"
-                echo "allow-loopback-pinentry" > $key_dir/gpg-agent.conf
+                echo "allow-loopback-pinentry" > "$key_dir/gpg-agent.conf"
             fi
-            gpg-connect-agent --homedir "$home_dir" reloadagent /bye
-            if [ $? != 0 ] ; then
+            if ! gpg-connect-agent --homedir "$home_dir" reloadagent /bye; then
                 gpg-agent --homedir "$home_dir" --daemon
             fi
     fi
-    $GPG_BIN --homedir "$home_dir" --batch --yes --gen-key "$key_dir/gen_keyring"
-    if [ $? != 0 ] ; then
+    if ! $GPG_BIN --homedir "$home_dir" --batch --yes --gen-key "$key_dir/gen_keyring"; then
             print_fatal "Error with keyring generation"
     fi
 
@@ -414,46 +545,55 @@ create_user_keys() {
     echo "Creating the user key for IMA appraisal"
     create_ima_user_key
 
-    echo "Creating the gpg key for RPM/OSTree"
-    create_gpg_user_key "$RPM_KEYS_DIR" RPM "$gpg_key_name" "$GPG_PASS" "$gpg_comment" "$gpg_email"
+    #echo "Creating the gpg key for RPM/OSTree"
+    #create_gpg_user_key "$RPM_KEYS_DIR" RPM "$gpg_key_name" "$GPG_PASS" "$gpg_comment" "$gpg_email"
 
-    echo "Creating the gpg key for boot loader"
-    create_gpg_user_key "$BOOT_KEYS_DIR" BOOT "$boot_gpg_key_name" "$BOOT_GPG_PASS" "$boot_gpg_comment" "$boot_gpg_email"
+    #echo "Creating the gpg key for boot loader"
+    #create_gpg_user_key "$BOOT_KEYS_DIR" BOOT "$boot_gpg_key_name" "$BOOT_GPG_PASS" "$boot_gpg_comment" "$boot_gpg_email"
 
-    echo "Creating the password salt for boot"
-    create_boot_pw_key
+    #echo "Creating the password salt for boot"
+    #create_boot_pw_key
 }
 
 if [ -d "$KEYS_DIR" ] ; then
     print_fatal "ERROR: $KEYS_DIR already exists, please remove it, to allow for the creation of new keys."
 fi
 
-if [ ! -z "$GPG_KEYNAME" ]; then
+if [ "$SIGNING_MODEL" = "pkcs11" ]; then
+   if [ -z "$PKCS11_TOKEN_MAP" ]; then
+       print_fatal "When pkcs11 signing is used the --pkcs11-token-map option must also be set"
+   fi
+
+   # shellcheck disable=SC1090
+   source "$PKCS11_TOKEN_MAP"
+fi
+
+if [ -n "$GPG_KEYNAME" ]; then
     gpg_key_name="$GPG_KEYNAME"
 else
     echo -n "Enter RPM/OSTree GPG keyname (use dashes instead of spaces) [default: $gpg_key_name]: "
-    read val
-    if [ ! -z "$val" ] ; then
+    read -r val
+    if [ -n "$val" ] ; then
         gpg_key_name=$val
     fi
 fi
 
-if [ ! -z "$GPG_EMAIL" ]; then
+if [ -n "$GPG_EMAIL" ]; then
     gpg_email=$GPG_EMAIL
 else
     echo -n "Enter RPM/OSTree GPG e-mail address [default: $gpg_email]: "
-    read val
-    if [ ! -z "$val" ] ; then
+    read -r val
+    if [ -n "$val" ] ; then
         gpg_email=$val
     fi
 fi
 
-if [ ! -z "$GPG_COMMENT" ]; then
+if [ -n "$GPG_COMMENT" ]; then
     gpg_comment=$GPG_COMMENT
 else
     echo -n "Enter RPM/OSTREE GPG comment [default: $gpg_comment]: "
-    read val
-    if [ ! -z "$val" ] ; then
+    read -r val
+    if [ -n "$val" ] ; then
         gpg_comment=$val
     fi
 fi
@@ -461,13 +601,13 @@ fi
 boot_gpg_key_name="BOOT-${gpg_key_name#PKG-}"
 boot_gpg_email="$gpg_email"
 boot_gpg_comment="$gpg_comment"
-if [ ! -z "$BOOT_GPG_KEYNAME" ]; then
+if [ -n "$BOOT_GPG_KEYNAME" ]; then
     boot_gpg_key_name="$BOOT_GPG_KEYNAME"
 fi
-if [ ! -z "$BOOT_GPG_EMAIL" ]; then
+if [ -n "$BOOT_GPG_EMAIL" ]; then
     boot_gpg_email=$BOOT_GPG_EMAIL
 fi
-if [ ! -z "$BOOT_GPG_COMMENT" ]; then
+if [ -n "$BOOT_GPG_COMMENT" ]; then
     boot_gpg_comment=$BOOT_GPG_COMMENT
 fi
 
@@ -499,51 +639,52 @@ if [ "$gpg_key_name" != "${gpg_key_name/$boot_gpg_key_name/}" ] ; then
 fi
 
 # Passwor section next
-if [ -z $GPG_PASS ]; then
-    while [ 1 ] ; do
+if [ -z "$GPG_PASS" ]; then
+    while true; do
         echo -n "Enter RPM/OSTREE passphrase: "
-        read val
-        if [ ! -z "$val" ] ; then
+        read -r val
+        if [ -n "$val" ] ; then
             GPG_PASS=$val
             break
         fi
     done
 fi
-if [ -z $IMA_PASS ]; then
-    while [ 1 ] ; do
+if [ -z "$IMA_PASS" ]; then
+    while true; do
         echo -n "Enter IMA passphrase: "
-        read val
-        if [ ! -z "$val" ] ; then
+        read -r val
+        if [ -n "$val" ] ; then
             IMA_PASS=$val
             break
         fi
     done
 fi
-if [ -z $BOOT_GPG_PASS ]; then
-    while [ 1 ] ; do
+if [ -z "$BOOT_GPG_PASS" ]; then
+    while true; do
         echo -n "Enter boot loader GPG passphrase: "
-        read val
-        if [ ! -z "$val" ] ; then
+        read -r val
+        if [ -n "$val" ] ; then
             BOOT_GPG_PASS=$val
             break
         fi
     done
 fi
-if [ -z $BOOT_PASS ]; then
-    while [ 1 ] ; do
+if [ -z "$BOOT_PASS" ]; then
+    while true; do
         echo -n "Enter boot loader locked configuration password(e.g. grub pw): "
-        read val
-        if [ ! -z "$val" ] ; then
+        read -r val
+        if [ -n "$val" ] ; then
             BOOT_PASS=$val
             break
         fi
     done
 fi
 
+
 create_user_keys
 
-cat <<EOF>$KEYS_DIR/keys.conf
-MASTER_KEYS_DIR = "$(readlink -f $KEYS_DIR)"
+cat <<EOF > "$KEYS_DIR/keys.conf"
+MASTER_KEYS_DIR = "$KEYS_DIR_RENDER"
 
 IMA_KEYS_DIR = "\${MASTER_KEYS_DIR}/ima_keys"
 IMA_EVM_KEY_DIR = "\${MASTER_KEYS_DIR}/ima_keys"
@@ -566,16 +707,23 @@ BOOT_GPG_PASSPHRASE = "$BOOT_GPG_PASS"
 OSTREE_GPGID = "$gpg_key_name"
 OSTREE_GPG_PASSPHRASE = "$GPG_PASS"
 OSTREE_GRUB_PW_FILE = "\${GRUB_PW_FILE}"
+
 EOF
+
+if [ "$SIGNING_MODEL" = "pkcs11" ]; then
+    cat <<EOF >> "$KEYS_DIR/keys.conf"
+# Token mappings for PKCS11 signing
+$(sed -e '/#.*/d' -e '/^$/d' -e 's/=/ = /' "$PKCS11_TOKEN_MAP")
+EOF
+fi
 
 cat<<EOF
 ## The following variables need to be entered into your local.conf
 ## in order to use the new signing keys:
 
-$(cat $KEYS_DIR/keys.conf)
+$(cat "$KEYS_DIR/keys.conf")
 
 ## Please save the values above to your local.conf
 ## Or copy and uncomment the following line:
-# require $(readlink -f $KEYS_DIR/keys.conf)
+# require $KEYS_DIR_RENDER/keys.conf
 EOF
-

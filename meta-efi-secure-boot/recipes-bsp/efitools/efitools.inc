@@ -30,6 +30,7 @@ SRC_URI = "git://git.kernel.org/pub/scm/linux/kernel/git/jejb/efitools.git;branc
            file://0017-Make.rules-fix-efi-files-for-gnu-efi-3.0.18.patch \
            file://0001-add-binary-only-make-rules.patch \
            file://0001-Fix-build-with-binutils-2.46.patch \
+           file://0019-Makefile-variables-for-using-a-signing-engine.patch \
            "
 SRCREV = "392836a46ce3c92b55dc88a1aebbcfdfc5dcddce"
 
@@ -68,6 +69,8 @@ do_install() {
 }
 
 fakeroot python do_sign:class-target() {
+    if d.getVar('UEFI_SB') != '1':
+        return
     if d.getVar('GRUB_SIGN_VERIFY') != '1':
         return
 
@@ -76,7 +79,7 @@ fakeroot python do_sign:class-target() {
     uks_boot_sign(os.path.join(image_dir + efi_boot_path, 'LockDown.efi'), d)
 }
 addtask sign after do_install before do_deploy do_package
-do_sign[prefuncs] += "${@'check_boot_public_key' if d.getVar('GRUB_SIGN_VERIFY') == '1' else ''}"
+do_sign[prefuncs] += "${@'check_boot_public_key' if d.getVar('GRUB_SIGN_VERIFY') == '1' and d.getVar('UEFI_SB') == '1' else ''}"
 
 fakeroot python do_sign() {
 }

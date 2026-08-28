@@ -3,6 +3,8 @@ FILESEXTRAPATHS:prepend := "${THISDIR}/grub-efi:"
 
 GRUB_SIGN_VERIFY_STRICT ?= "1"
 
+UNPACKDIR = "${WORKDIR}"
+
 EXTRA_SRC_URI = "\
     ${@'file://efi-secure-boot.inc file://password.inc' if d.getVar('UEFI_SB') == '1' else ''} \
 "
@@ -15,6 +17,7 @@ GRUB_MOKVERIFY_PATCH = " \
     file://0007-kern-efi-init.c-disable-inside-lockdown-and-shim_loc.patch \
     file://0008-efi-fallback-to-legacy-mode-if-mok2verify-is-loaded.patch \
     file://0009-mok2verify-remove-unused-parameter-from-grub_efi_mok.patch \
+    file://0010-Disable-setting-page-permissions-for-loaded-modules.patch \
 "
 
 SRC_URI:append:class-target = " \
@@ -86,18 +89,8 @@ EOF
     else
         > ${WORKDIR}/cfg
     fi
-
-    if [ "${GRUB_SIGN_VERIFY}" = "0" -a "${UEFI_SELOADER}" = "1" ] ; then
-        cat<<EOF>>${WORKDIR}/cfg
-search.file (\$cmdpath)${GRUB_PREFIX_DIR}/grub.cfg root
-EOF
-    else
-        cat<<EOF>>${WORKDIR}/cfg
-search.file ${GRUB_PREFIX_DIR}/grub.cfg root
-EOF
-    fi
-
     cat<<EOF>>${WORKDIR}/cfg
+search --file --set=root --hint-efi=(\$cmdpath) ${GRUB_PREFIX_DIR}/EFI/BOOT/grub.cfg
 set prefix=(\$root)${GRUB_PREFIX_DIR}
 EOF
 

@@ -1,0 +1,43 @@
+From 8d09849a14c8a61210104bf3284a19bf0b00333f Mon Sep 17 00:00:00 2001
+From: Truls Asheim <truls@asheim.dk>
+Date: Wed, 2 Apr 2025 10:56:59 +0200
+Subject: [PATCH] Force building with OpenSSL engine support
+
+The OpenSSL engine API was depretecated in OpenSSL 3 in favor of the
+providers API. The default in the sign-file.c script is to use the
+provider API for OpenSSL versions >=3. However, we depend o the
+libp11 engine that relies on the obsolete API.
+
+Signed-off-by: Truls Asheim <truls@asheim.dk>
+Upstream-Status: Inappropriate [OE-specific]
+
+---
+ scripts/sign-file.c | 12 ++----------
+ 1 file changed, 2 insertions(+), 10 deletions(-)
+
+diff --git a/scripts/sign-file.c b/scripts/sign-file.c
+index 7070245edfc1..5e6d7187ca66 100644
+--- a/scripts/sign-file.c
++++ b/scripts/sign-file.c
+@@ -27,16 +27,8 @@
+ #include <openssl/evp.h>
+ #include <openssl/pem.h>
+ #include <openssl/err.h>
+-#if OPENSSL_VERSION_MAJOR >= 3
+-# define USE_PKCS11_PROVIDER
+-# include <openssl/provider.h>
+-# include <openssl/store.h>
+-#else
+-# if !defined(OPENSSL_NO_ENGINE) && !defined(OPENSSL_NO_DEPRECATED_3_0)
+-#  define USE_PKCS11_ENGINE
+-#  include <openssl/engine.h>
+-# endif
+-#endif
++#define USE_PKCS11_ENGINE
++#include <openssl/engine.h>
+ #include "ssl-common.h"
+ 
+ /*
+-- 
+2.43.0
+

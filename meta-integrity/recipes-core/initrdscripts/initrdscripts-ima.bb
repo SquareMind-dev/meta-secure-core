@@ -8,7 +8,7 @@ SRC_URI = "\
     file://init.ima \
 "
 
-S = "${UNPACKDIR}"
+S = "${WORKDIR}"
 
 ALLOW_EMPTY:${PN} = "1"
 
